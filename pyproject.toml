@@ -7,7 +7,10 @@ authors = [
     { name = "knutdrand", email = "knutdrand@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "requests>=2.33.1",
+    "shapely>=2.0",
+]
 
 [project.scripts]
 chap-gis = "chap_gis:main"
