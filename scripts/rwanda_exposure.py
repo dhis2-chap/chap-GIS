@@ -26,10 +26,10 @@ def run(
     country: str = "RWA",
     year_worldcover: int = 2021,
     year_chelsa: int = 2010,
-    year_worldpop: int = 2020,
+    year_worldpop: int = 2026,
     resolution_m: float = 30.0,
     rice: Path | None = None,
-    out_dir: Path = Path("data/cache"),
+    out_dir: Path = Path("data/outputs"),
 ) -> None:
     """Compute and write the country-wide exposure rasters."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -94,11 +94,15 @@ def run(
     ################
     # population
 
-    # load population and project to analysis grid
-    population = (
-        cgis.io.worldpop.load(country, year=year_worldpop)
-        .pipe(cgis.io.worldpop.reproject_density, grid)
+    # load population
+    population = cgis.io.worldpop.load(
+        country, year=year_worldpop
     )
+
+    # reproject to analysis grid
+    # NOTE: right now inflates the pop by repeating total counts
+    # TODO: need to convert to divide the pop by new cell size division
+    population = population.pipe(reproject_to, grid, 'nearest')
 
 
     ################

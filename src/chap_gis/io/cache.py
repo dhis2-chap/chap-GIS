@@ -7,7 +7,7 @@ from pathlib import Path
 
 import requests
 
-DEFAULT_CACHE_DIR = Path(os.environ.get("CHAP_GIS_CACHE", "data/cache"))
+DEFAULT_CACHE_DIR = Path(os.environ.get("CHAP_GIS_CACHE", "data/cache")).absolute()
 
 
 def cache_dir() -> Path:

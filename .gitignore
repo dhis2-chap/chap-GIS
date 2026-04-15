@@ -15,5 +15,4 @@ wheels/
 
 # Data folders
 data/cache/
-data/downloads/
-data/zarr/
+data/outputs/
