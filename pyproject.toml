@@ -23,6 +23,10 @@ dependencies = [
     "cyclopts>=3.0",
     "dask-image>=2024.5",
     "odc-geo>=0.4",
+    "pystac_client",
+    "fsspec[s3]",
+    "python-dotenv",
+    "jupyter",
 ]
 
 [dependency-groups]

@@ -13,6 +13,9 @@ wheels/
 .idea/
 .vscode/
 
+# Local env vars
+.env
+
 # Data folders
 data/cache/
 data/outputs/
