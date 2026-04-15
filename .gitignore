@@ -9,5 +9,10 @@ wheels/
 # Virtual environments
 .venv
 
+# IDE
+.idea/
+.vscode/
+
 # Data folders
+data/cache/
 data/zarr/
