@@ -6,11 +6,9 @@ import xarray as xr
 from chap_gis.io.elevation import load
 from chap_gis.io.cache import cache_dir
 
-def test_load_elevation():
-    bbox = [10, 59, 11+1, 60+1]  # example: Oslo-ish
-
+def test_load_elevation(rwanda_adm0):
     # test that data downloads and returns correctly
-    da = load(bbox)
+    da = load(rwanda_adm0)
     assert isinstance(da, xr.DataArray)
     
     # test that source file is located in cachedir

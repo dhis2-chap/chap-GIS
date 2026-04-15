@@ -7,6 +7,8 @@ import pytest
 import rioxarray  # noqa: F401
 import xarray as xr
 
+from chap_gis.io import boundaries
+
 
 def _grid(shape=(20, 20), crs="EPSG:32636", res=30.0):
     ny, nx = shape
@@ -23,6 +25,12 @@ def _grid(shape=(20, 20), crs="EPSG:32636", res=30.0):
 @pytest.fixture
 def grid():
     return _grid()
+
+
+@pytest.fixture
+def rwanda_adm0():
+    gdf = boundaries.load('RWA', level=0)
+    return gdf
 
 
 @pytest.fixture

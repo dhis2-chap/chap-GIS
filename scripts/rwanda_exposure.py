@@ -21,21 +21,20 @@ app = App(name="rwanda-exposure", help=__doc__)
 @app.default
 def run(
     *,
-    elevation: Path,
     chelsa_dir: Path,
+    rice: Path | None = None,
     country: str = "RWA",
     year_worldcover: int = 2021,
     year_chelsa: int = 2010,
     year_worldpop: int = 2026,
     resolution_m: float = 30.0,
-    rice: Path | None = None,
     out_dir: Path = Path("data/outputs"),
 ) -> None:
     """Compute and write the country-wide exposure rasters."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # load area of interest / country with buffer
-    aoi = cgis.io.boundaries.load_adm(country, level=0)
+    aoi = cgis.io.boundaries.load(country, level=0)
     buffered = cgis.aoi.buffered(aoi, distance=0.0027)  # ~300 m buffer
 
     # build analysis grid for area
@@ -59,7 +58,7 @@ def run(
     # elevation
 
     # load elevation and project to analysis grid
-    elev_native = cgis.io.elevation.load(elevation)
+    elev_native = cgis.io.elevation.load(buffered)
     elev = elev_native.pipe(reproject_to, grid, "bilinear")
 
 

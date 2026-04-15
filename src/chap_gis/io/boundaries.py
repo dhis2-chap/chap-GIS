@@ -12,7 +12,7 @@ GEOBOUNDARIES_URL = (
 )
 
 
-def load_adm(iso3: str, level: int = 0, crs: str = "EPSG:4326") -> gpd.GeoDataFrame:
+def load(iso3: str, level: int = 0, crs: str = "EPSG:4326") -> gpd.GeoDataFrame:
     """Load an administrative boundary from geoBoundaries.
 
     The GeoJSON is cached on disk under ``cache_dir()``.

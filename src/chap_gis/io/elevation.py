@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import logging
 from pathlib import Path
-from urllib.request import urlretrieve
+from concurrent.futures import ThreadPoolExecutor
+import time
 
-import rioxarray
+from geopandas import GeoDataFrame
 import xarray as xr
 import pystac_client
 import fsspec
@@ -28,12 +29,16 @@ logger = logging.getLogger(__name__)
 force_logging(logger)
 
 # TODO: this should be added to dhis2eo later
+def save_s3_file(fs, fs_path, save_path):
+    logger.info(f'Downloading file {fs_path} to {save_path}')
+    fs.get(fs_path, save_path)
+
 def download(
-    bbox: BBox, 
+    bbox: BBox,
     dirname: str,
     prefix: str,
     overwrite: bool = False,
-):
+) -> list[Path]:
     """
     Retrieves Copernicus 30m DEM elevation tile data for a given bbox.
     Saves tile files to disk, as specified by dirname and prefix.
@@ -62,6 +67,9 @@ def download(
         bbox=bbox,
     )
 
+    # create pooled downloader
+    downloader = ThreadPoolExecutor(max_workers=10)
+
     # process each tile
     files = []
     for item in search.items():
@@ -81,24 +89,32 @@ def download(
 
         else:
             # Download the data
-            logger.info(f'Downloading file {filename} to {save_path}')
-            fs.get(fs_path, save_path)
+            downloader.submit(save_s3_file, fs, fs_path, save_path)
+        
+        # Brief pause to avoid overwhelming stac service
+        time.sleep(0.3)
+
+    # Wait for all downloads to finish
+    downloader.shutdown(wait=True)
     
     # Return downloaded files
     return files
 
 def load(
-        bbox: list,
+        aoi: GeoDataFrame,
     ) -> xr.DataArray:
     """Load a digital elevation model (DEM) as a dask-backed DataArray on its native grid.
 
     The file's CRS is preserved on the returned DataArray. Nodata pixels are
     converted to NaN. 
     """
+    # get bbox from aoi
+    bbox = list(map(float, aoi.total_bounds))
+
     # get files from cache or download
     files = download(
-        bbox=bbox, 
-        dirname=cache_dir(), 
+        bbox=bbox,
+        dirname=cache_dir(),
         prefix='copernicus_elevation',
     )
 
