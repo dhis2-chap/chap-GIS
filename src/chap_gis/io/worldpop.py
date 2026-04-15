@@ -65,3 +65,25 @@ def reproject_density(
     out.name = src.name
     out.attrs = {**src.attrs, "history": "reproject_density(target)"}
     return out.rio.write_crs(target.rio.crs)
+
+# def load(
+#     iso3: str,
+#     year: int = 2020,
+#     path: str | Path | None = None,
+#     chunks: str | dict = "auto",
+# ) -> xr.DataArray:
+#     """Load a WorldPop people-per-pixel raster as a lazy DataArray."""
+    
+#     ds = worldpop.yearly.download(start=str(year),
+#                                   end=str(year),
+#                                   country_code=iso3,
+#                                   download_dir=cache_dir(),
+#                                   prefix='worldpop')
+#     ds = ds.where(ds >= 0)
+#     ds.name = "population"
+#     ds.attrs.update(
+#         long_name="Population count per pixel",
+#         units="people",
+#         source=f"WorldPop constrained {year}",
+#     )
+#     return ds
