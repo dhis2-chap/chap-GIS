@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import logging
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 import geopandas as gpd
 import rioxarray  # noqa: F401  (registers the .rio accessor)
 import xarray as xr
 import openeo
+import fsspec
 
 from .cache import cache_dir
 
@@ -19,7 +22,10 @@ from dhis2eo.data.utils import force_logging
 logger = logging.getLogger(__name__)
 force_logging(logger)
 
-def fetch_from_openeo(year, bbox, save_path):
+##################
+# openeo approach
+
+def fetch_year_openeo(year, bbox, save_path):
     # Note: this function uses openeo which requires authentication keys and can take up to 5 mins
     # If needed, we can also explore direct against their S3 buckets which likely will be faster
     # ...and result in multiple downloaded tiles
@@ -69,7 +75,7 @@ def fetch_from_openeo(year, bbox, save_path):
     else:
         raise Exception(f'Failed to retrieve data from openeo service: {job.status()}')
 
-def download(
+def fetch_years_openeo(
     start: DateLike,
     end: DateLike,
     bbox: BBox,
@@ -97,7 +103,117 @@ def download(
         else:
             # Download the data
             logger.info(f'Fetching data for {year}')
-            fetch_from_openeo(year, bbox, save_path)
+            fetch_year_openeo(year, bbox, save_path)
+
+    return files
+
+#################
+# aws s3 approach
+
+def save_s3_file(fs, fs_path, save_path):
+    logger.info(f'Downloading file {fs_path} to {save_path}')
+    fs.get(fs_path, save_path)
+
+def fetch_year_s3(
+    year: int,
+    bbox: BBox,
+    dirname: str,
+    prefix: str,
+    overwrite: bool = False,
+) -> list[Path]:
+    """
+    Retrieves WorldCover tile data for a given bbox.
+    Saves tile files to disk, as specified by dirname and prefix.
+    """
+    os.makedirs(dirname, exist_ok=True)
+
+    # create geometry from bbox
+    from shapely.geometry import box
+    geom = box(*bbox)
+
+    # connect and authenticate with s3 storage
+    s3_url_prefix = "https://esa-worldcover.s3.eu-central-1.amazonaws.com"
+    logger.info(f'Connecting to s3 {s3_url_prefix}')
+    fs = fsspec.filesystem("https")
+
+    # load worldcover grid geojson
+    tile_grid_url = f'{s3_url_prefix}/esa_worldcover_grid.geojson'
+    tile_grid = gpd.read_file(tile_grid_url)
+
+    # get grid tiles intersecting AOI
+    tiles = tile_grid[tile_grid.intersects(geom)]
+
+    # select version tag, based on the year
+    version = {
+        2020: 'v100',
+        2021: 'v200'
+    }[year]
+
+    # create pooled downloader
+    downloader = ThreadPoolExecutor(max_workers=10)
+
+    # process each tile
+    files = []
+    for tile in tiles.ll_tile:
+        logger.info(f'Tile {tile}')
+
+        # Determine the save path
+        fs_path = f"{s3_url_prefix}/{version}/{year}/map/ESA_WorldCover_10m_{year}_{version}_{tile}_Map.tif"
+        filename = Path(fs_path).stem
+        save_file = f'{prefix}_{filename}.tif'
+        save_path = (Path(dirname) / save_file).resolve()
+        files.append(save_path)
+
+        # Download or use existing file
+        if overwrite is False and save_path.exists():
+            # File already exist, load from file instead
+            logger.info(f'File already downloaded: {save_path}')
+
+        else:
+            # Download the data
+            #downloader.submit(save_s3_file, fs, fs_path, save_path)
+            save_s3_file(fs, fs_path, save_path)
+
+            # TODO: these are large tiles, likely need to crop to bbox after download too
+            # ... 
+        
+        # Brief pause to avoid overwhelming service
+        #time.sleep(0.3)
+
+    # Wait for all downloads to finish
+    downloader.shutdown(wait=True)
+    
+    # Return downloaded files
+    return files
+
+############
+# main
+
+def download(
+    start: DateLike,
+    end: DateLike,
+    bbox: BBox,
+    dirname: str,
+    prefix: str,
+    overwrite: bool = False,
+) -> list[Path]:
+    
+    # download from openeo
+    files = fetch_years_openeo(
+        start,
+        end,
+        bbox,
+        dirname,
+        prefix,
+        overwrite,
+    )
+
+    # download from s3
+    # start = int(start)
+    # end = int(end)
+    # files = []
+    # for year in range(start, end + 1):
+    #     files += fetch_year_s3(year, bbox, dirname, prefix, overwrite)
 
     return files
 

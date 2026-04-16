@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+import logging
 
 import xarray as xr
 
@@ -10,6 +11,8 @@ def test_load_worldcover(rwanda_adm0):
     # test that data downloads and returns correctly
     year = 2021
     da = load(rwanda_adm0, year)
+    logging.info(da)
+    
     assert isinstance(da, xr.DataArray)
     
     # test that source file is located in cachedir
