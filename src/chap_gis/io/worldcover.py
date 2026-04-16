@@ -2,80 +2,137 @@
 
 from __future__ import annotations
 
-import math
+import logging
 from pathlib import Path
 
 import geopandas as gpd
 import rioxarray  # noqa: F401  (registers the .rio accessor)
 import xarray as xr
+import openeo
 
-from .cache import cache_dir, download_file
+from .cache import cache_dir
 
-WC_BASE = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
-WC_TILE_SIZE_DEG = 3
+# borrowing some things from dhis2eo for later integration
+from dhis2eo.utils.types import BBox, DateLike
+from dhis2eo.data.utils import force_logging
 
+logger = logging.getLogger(__name__)
+force_logging(logger)
 
-def tile_name(lat_sw: int, lon_sw: int) -> str:
-    """Encode a WorldCover tile name from its SW-corner lat/lon (integer degrees)."""
-    ns = f"N{lat_sw:02d}" if lat_sw >= 0 else f"S{-lat_sw:02d}"
-    ew = f"E{lon_sw:03d}" if lon_sw >= 0 else f"W{-lon_sw:03d}"
-    return f"{ns}{ew}"
+def fetch_from_openeo(year, bbox, save_path):
+    # Note: this function uses openeo which requires authentication keys and can take up to 5 mins
+    # If needed, we can also explore direct against their S3 buckets which likely will be faster
+    # ...and result in multiple downloaded tiles
 
+    # connect to openeo
+    # Note: right now requires manual login only the first time
+    # TODO: switch to passing client key and secret key from env vars
+    conn = openeo.connect("https://openeo.dataspace.copernicus.eu")
+    conn.authenticate_oidc()  # triggers manual login
 
-def tiles_for_bounds(bounds: tuple[float, float, float, float]) -> list[str]:
-    """Return the list of WorldCover tile names covering a geographic bbox."""
-    minx, miny, maxx, maxy = bounds
-    lat_start = math.floor(miny / WC_TILE_SIZE_DEG) * WC_TILE_SIZE_DEG
-    lat_stop = math.floor((maxy - 1e-9) / WC_TILE_SIZE_DEG) * WC_TILE_SIZE_DEG
-    lon_start = math.floor(minx / WC_TILE_SIZE_DEG) * WC_TILE_SIZE_DEG
-    lon_stop = math.floor((maxx - 1e-9) / WC_TILE_SIZE_DEG) * WC_TILE_SIZE_DEG
-    tiles = []
-    for lat in range(lat_start, lat_stop + 1, WC_TILE_SIZE_DEG):
-        for lon in range(lon_start, lon_stop + 1, WC_TILE_SIZE_DEG):
-            tiles.append(tile_name(lat, lon))
-    return tiles
+    # create bbox dict
+    xmin,ymin,xmax,ymax = bbox
+    bbox_dict = {
+        "west": xmin,
+        "south": ymin,
+        "east": xmax,
+        "north": ymax,
+    }
 
+    # load collection
+    year_to_suffix = {
+        2020: '2020_V1',
+        2021: '2021_V2',
+    }
+    suffix = year_to_suffix[year]
+    logger.info(f"Loading collection: ESA_WORLDCOVER_10M_{suffix} {bbox_dict}")
+    wc = conn.load_collection(
+        f"ESA_WORLDCOVER_10M_{suffix}",
+        spatial_extent=bbox_dict,
+    )
 
-def _download_tile(tile: str, year: int = 2021) -> Path:
-    filename = f"ESA_WorldCover_10m_{year}_v200_{tile}_Map.tif"
-    url = f"{WC_BASE}/{filename}"
-    return download_file(url, cache_dir() / filename, label=f"WorldCover {tile}")
+    # schedule saving to netcdf
+    wc.save_result(format="NetCDF")
 
+    # submit as asynch job
+    # and wait for job to finish
+    logger.info('Waiting for job data request...')
+    job = wc.execute_batch(title="Retrieve worldcover for bbox")  # waits for result to finish
+
+    # validate results
+    if job.status() == 'finished':
+        # download to disk
+        logger.info(f'Job finished, downloading results...')
+        results = job.get_results()
+        results.download_file(save_path)
+    
+    else:
+        raise Exception(f'Failed to retrieve data from openeo service: {job.status()}')
+
+def download(
+    start: DateLike,
+    end: DateLike,
+    bbox: BBox,
+    dirname: str,
+    prefix: str,
+    overwrite: bool = False,
+) -> list[Path]:
+    # For every year
+    start_year = int(start)
+    end_year = int(end)
+    files = []
+    for year in range(start_year, end_year + 1):
+        logger.info(f'Year {year}')
+
+        # Determine the save path
+        save_file = f'{prefix}_{year}.tif'
+        save_path = (Path(dirname) / save_file).resolve()
+        files.append(save_path)
+
+        # Download or use existing file
+        if overwrite is False and save_path.exists():
+            # File already exist, load from file instead
+            logger.info(f'File already downloaded: {save_path}')
+
+        else:
+            # Download the data
+            logger.info(f'Fetching data for {year}')
+            fetch_from_openeo(year, bbox, save_path)
+
+    return files
 
 def load(
     aoi: gpd.GeoDataFrame,
     year: int = 2021,
-    chunks: str | dict = "auto",
 ) -> xr.DataArray:
-    """Load WorldCover tiles covering `aoi` as a lazy mosaic DataArray.
-
-    Each tile is opened lazily via :func:`rioxarray.open_rasterio`; the
-    mosaic is assembled with :func:`xarray.combine_by_coords` so the whole
-    returned array is dask-backed. Callers reproject/aggregate to the target
-    grid (see :func:`chap_gis.grid.reproject_to`).
     """
+    Retrieve dataset for WorldCover cropped to aoi via openeo
+    """
+    # get bbox
     if str(aoi.crs) != "EPSG:4326":
         aoi = aoi.to_crs("EPSG:4326")
-    bounds = tuple(aoi.total_bounds)
+    bounds = list(map(float, aoi.total_bounds))
 
-    tiles = [
-        rioxarray.open_rasterio(
-            _download_tile(t, year=year), masked=False, chunks=chunks
-        ).squeeze("band", drop=True)
-        for t in tiles_for_bounds(bounds)
-    ]
-    mosaic = xr.combine_by_coords(tiles, combine_attrs="override")
-    if isinstance(mosaic, xr.Dataset):
-        (name,) = mosaic.data_vars
-        mosaic = mosaic[name]
+    # download and open
+    files = download(
+        start=year,
+        end=year,
+        bbox=bounds,
+        dirname=cache_dir(),
+        prefix='worldcover',
+    )
+    ds = xr.open_mfdataset(files)
+    da = ds['band_data'].squeeze('band')
 
-    minx, miny, maxx, maxy = bounds
-    mosaic = mosaic.rio.clip_box(minx=minx, miny=miny, maxx=maxx, maxy=maxy)
-    mosaic.name = "landcover"
-    mosaic.attrs.update(
+    # add metadata
+    da.name = "landcover"
+    da.attrs.update(
         long_name="ESA WorldCover land cover class",
         standard_name="land_cover_lccs_class",
         units="1",
-        source=f"ESA WorldCover v200 {year}",
+        source=f"ESA WorldCover",
     )
-    return mosaic.rio.write_crs("EPSG:4326")
+    da.rio.write_crs("EPSG:4326")
+
+    # return
+    return da
