@@ -2,76 +2,171 @@
 
 from __future__ import annotations
 
+import os
+import logging
 from pathlib import Path
-from typing import Literal
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
 import rioxarray
 import xarray as xr
+import fsspec
+from geopandas import GeoDataFrame
 
-Scaling = Literal["auto", "kelvin_x10", "celsius_x10", "celsius"]
+from .cache import cache_dir
+
+# borrowing some things from dhis2eo for later integration
+from dhis2eo.utils.types import BBox, DateLike
+from dhis2eo.utils.time import iter_months
 
 
-def _open_month(path: Path, chunks) -> xr.DataArray:
-    return rioxarray.open_rasterio(path, masked=True, chunks=chunks).squeeze(
-        "band", drop=True
+logger = logging.getLogger(__name__)
+
+
+# def fetch_day(variable, year, month, day):
+#     version = 'V.2.1'
+#     url = f'https://os.unil.cloud.switch.ch/chelsa02/chelsa/global/daily/{variable}/{year}/CHELSA_{variable}_{day}_{month}_{year}_{version}.tif'
+
+
+def fetch_month(variable, bbox, year, month, save_path):
+    # create url path
+    version = 'V.2.1'
+    url = f'https://os.unil.cloud.switch.ch/chelsa02/chelsa/global/monthly/{variable}/{year}/CHELSA_{variable}_{str(month).zfill(2)}_{year}_{version}.tif'
+
+    # Connect to global dataset lazily
+    da = rioxarray.open_rasterio(
+        url,
+        chunks=None, # disable dask, not needed and actually slows things down
     )
+    
+    # Read only the bbox window
+    xmin, ymin, xmax, ymax = bbox
+    da = da.rio.clip_box(minx=xmin, miny=ymin, maxx=xmax, maxy=ymax)
+    
+    # Ensure nodata value is masked and added to metadata
+    #nodata = -9999.0 # this should be the chirps3 nodata value
+    #da = da.where(da != nodata) # this adds nans where nodata for plotting
+    #da.rio.write_nodata(nodata, encoded=True, inplace=True) # should write to metadata for future saving
+
+    # Convert to dataset
+    ds = da.to_dataset(name=variable)
+
+    # Remove unnecessary band dim
+    ds = ds.squeeze("band", drop=True)
+
+    # Add month constant
+    ds = ds.expand_dims(time=[np.datetime64(f'{year}-{str(month).zfill(2)}-01')])
+
+    # Save to netcdf
+    ds.to_netcdf(save_path)
 
 
-def _detect_scaling(da: xr.DataArray) -> str:
-    """Probe a tiny window of the lazy array to decide CHELSA scaling."""
-    probe = da.isel(y=slice(0, 64), x=slice(0, 64)).values
-    sample = probe[np.isfinite(probe)]
-    if sample.size == 0:
-        return "celsius"
-    m = float(np.mean(sample))
-    if m > 2000:
-        return "kelvin_x10"
-    if m > 200:
-        return "celsius_x10"
-    return "celsius"
+def download(
+    start: DateLike,
+    end: DateLike,
+    bbox: BBox,
+    dirname: str,
+    prefix: str,
+    variable: str,
+    overwrite: bool = False,
+) -> list[Path]:
+    """
+    Retrieves CHELSA 1km climate data for a given bbox.
+    Saves files to disk, as specified by dirname and prefix.
+    """
+    os.makedirs(dirname, exist_ok=True)
+
+    # Create multithread downloader
+    downloader = ThreadPoolExecutor(max_workers=4)
+
+    # Loop months
+    start_year, start_month = map(int, start.split('-'))
+    end_year, end_month = map(int, end.split('-'))
+    files = []
+    for year, month in iter_months(start_year, start_month, end_year, end_month):
+        logger.info(f'Month {year}-{month}')
+
+        # Determine the save path
+        save_file = f'{prefix}_{year}-{str(month).zfill(2)}.tif'
+        save_path = (Path(dirname) / save_file).resolve()
+        files.append(save_path)
+
+        # Download or use existing file
+        if overwrite is False and save_path.exists():
+            # File already exist, load from file instead
+            logger.info(f'File already downloaded: {save_path}')
+
+        else:
+            # Download the data
+            downloader.submit(fetch_month, variable, bbox, year, month, save_path)
+            #fetch_month(variable, bbox, year, month, save_path)
+
+    # Wait for remaining downloads
+    downloader.shutdown(wait=True)
+
+    return files
 
 
 def load_monthly_tas(
-    chelsa_dir: str | Path,
+    aoi: GeoDataFrame,
     year: int,
-    filename_template: str = "CHELSA_tas_{month:02d}_{year}_V.2.1.tif",
-    chunks: str | dict = "auto",
-    scaling: Scaling = "auto",
 ) -> xr.DataArray:
-    """Load 12 monthly CHELSA near-surface air temperature rasters.
+    """Load monthly CHELSA near-surface air temperature rasters for a given year.
 
     Returns a lazy DataArray with dims ``(time, y, x)`` in degrees Celsius.
-    ``scaling`` selects the unit conversion; ``"auto"`` probes a tiny window
-    (64x64) to decide between K×10 / °C×10 / °C.
     """
-    chelsa_dir = Path(chelsa_dir)
-    arrays = []
-    for month in range(1, 13):
-        path = chelsa_dir / filename_template.format(month=month, year=year)
-        if not path.exists():
-            raise FileNotFoundError(path)
-        arrays.append(_open_month(path, chunks))
+    # get bbox from aoi
+    bbox = list(map(float, aoi.total_bounds))
 
-    da = xr.concat(arrays, dim="time").astype("float32")
-    da = da.assign_coords(
-        time=pd.date_range(f"{year}-01-01", periods=12, freq="MS")
+    # get files from cache or download
+    variable = 'tas'  # temperature
+    files = download(
+        start=f'{year}-01',
+        end=f'{year}-12',
+        bbox=bbox,
+        dirname=cache_dir(),
+        prefix='chelsa_temperature',
+        variable=variable,
     )
 
-    mode = _detect_scaling(da) if scaling == "auto" else scaling
-    if mode == "kelvin_x10":
-        da = da / 10.0 - 273.15
-    elif mode == "celsius_x10":
-        da = da / 10.0
-    # else: celsius, no-op
+    # open as multifile
+    ds = xr.open_mfdataset(files)
 
-    da.name = "tas"
+    logger.info(ds)
+
+    # chelsa_dir = Path(chelsa_dir)
+    # arrays = []
+    # for month in range(1, 13):
+    #     path = chelsa_dir / filename_template.format(month=month, year=year)
+    #     if not path.exists():
+    #         raise FileNotFoundError(path)
+    #     arrays.append(_open_month(path, chunks))
+
+    # da = xr.concat(arrays, dim="time").astype("float32")
+    # da = da.assign_coords(
+    #     time=pd.date_range(f"{year}-01-01", periods=12, freq="MS")
+    # )
+
+    # mode = _detect_scaling(da) if scaling == "auto" else scaling
+    # if mode == "kelvin_x10":
+    #     da = da / 10.0 - 273.15
+    # elif mode == "celsius_x10":
+    #     da = da / 10.0
+    # # else: celsius, no-op
+
+    # convert kelvin to celsius
+    ds[variable] -= 273.15
+
+    # only return data array
+    da = ds[variable]
+
+    # add metadata
+    da.name = variable
     da.attrs.update(
         long_name="Near-surface air temperature (monthly mean)",
         standard_name="air_temperature",
         units="degC",
         source=f"CHELSA v2.1 monthly tas {year}",
-        scaling=mode,
     )
     return da

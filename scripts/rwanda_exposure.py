@@ -21,11 +21,10 @@ app = App(name="rwanda-exposure", help=__doc__)
 @app.default
 def run(
     *,
-    chelsa_dir: Path,  # will be replaced by chelsa_year and fetched via dynamic function
     country: str = "RWA",
     year_worldcover: int = 2021,
-    year_chelsa: int = 2010,
-    year_worldpop: int = 2026,
+    year_chelsa: int = 2021,
+    year_worldpop: int = 2021,
     resolution_m: float = 30.0,
     out_dir: Path = Path("data/outputs"),
 ) -> None:
@@ -66,7 +65,7 @@ def run(
 
     # load monthly temperature data and calculate annual mean
     tas_annual = (
-        cgis.io.chelsa.load_monthly_tas(chelsa_dir, year=year_chelsa)
+        cgis.io.chelsa.load_monthly_tas(aoi, year=year_chelsa)
         .pipe(cgis.climate.annual_mean)
     )
 
