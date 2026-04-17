@@ -22,7 +22,6 @@ app = App(name="rwanda-exposure", help=__doc__)
 def run(
     *,
     chelsa_dir: Path,  # will be replaced by chelsa_year and fetched via dynamic function
-    rice: Path | None = None,  # will be replaced by rice_year (or none at all since static) and fetched via dynamic function
     country: str = "RWA",
     year_worldcover: int = 2021,
     year_chelsa: int = 2010,
@@ -108,13 +107,11 @@ def run(
     # rice fields
 
     # load rice fields data and project to analysis grid
-    rice_mask = None
-    if rice is not None and rice.exists():
-        rice_mask = (
-            cgis.io.elevation.load(rice)
-            .pipe(reproject_to, grid, "nearest")
-            .pipe(lambda r: (r > 0).rio.write_crs(grid.rio.crs))
-        )
+    rice_mask = (
+        cgis.io.rice.load(country)
+        .pipe(reproject_to, grid, "nearest")
+        .pipe(lambda r: (r > 0).rio.write_crs(grid.rio.crs))
+    )
 
     # analysis: compute breeding sites
     breeding = cgis.landcover.breeding_site_mask(
