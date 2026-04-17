@@ -58,7 +58,7 @@ of the years are specified.
 Simplest possible example to run the analysis for Rwanda 2021:
 
 ```
-  python -m scripts/exposure_analysis.py --country=RWA
+  uv run scripts/exposure_analysis.py --country=RWA
 ```
 
 ### Environment variables

@@ -15,7 +15,7 @@ from cyclopts import App
 import chap_gis as cgis
 from chap_gis.grid import reproject_to
 
-app = App(name="rwanda-exposure", help=__doc__)
+app = App(name="exposure-analysis", help=__doc__)
 
 
 @app.default
@@ -29,6 +29,8 @@ def run(
     out_dir: Path = Path("data/outputs"),
 ) -> None:
     """Compute and write the country-wide exposure rasters."""
+    
+    print(f'Starting malaria exposure analysis for country: {country}')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # load area of interest / country with buffer
@@ -166,5 +168,5 @@ def run(
         print(f"  People in hotspots: {stats['hotspot_pop']:,.0f} ({stats['pct']:.1f}%)")
 
 
-#if __name__ == "__main__":
-#    app()
+if __name__ == "__main__":
+    app()
