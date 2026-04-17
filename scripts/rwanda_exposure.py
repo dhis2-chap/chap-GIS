@@ -21,8 +21,8 @@ app = App(name="rwanda-exposure", help=__doc__)
 @app.default
 def run(
     *,
-    chelsa_dir: Path,
-    rice: Path | None = None,
+    chelsa_dir: Path,  # will be replaced by chelsa_year and fetched via dynamic function
+    rice: Path | None = None,  # will be replaced by rice_year (or none at all since static) and fetched via dynamic function
     country: str = "RWA",
     year_worldcover: int = 2021,
     year_chelsa: int = 2010,

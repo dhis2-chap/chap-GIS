@@ -109,6 +109,7 @@ def fetch_years_openeo(
 
 #################
 # aws s3 approach
+# https://esa-worldcover.org/en/data-access
 
 def save_s3_file(fs, fs_path, save_path):
     logger.info(f'Downloading file {fs_path} to {save_path}')
@@ -150,7 +151,7 @@ def fetch_year_s3(
     }[year]
 
     # create pooled downloader
-    downloader = ThreadPoolExecutor(max_workers=10)
+    downloader = ThreadPoolExecutor(max_workers=4)
 
     # process each tile
     files = []
@@ -171,14 +172,11 @@ def fetch_year_s3(
 
         else:
             # Download the data
-            #downloader.submit(save_s3_file, fs, fs_path, save_path)
-            save_s3_file(fs, fs_path, save_path)
+            downloader.submit(save_s3_file, fs, fs_path, save_path)
 
-            # TODO: these are large tiles, likely need to crop to bbox after download too
+            # TODO: these are large tiles, likely need to save to temporary folder
+            # then crop to bbox and save to target location
             # ... 
-        
-        # Brief pause to avoid overwhelming service
-        #time.sleep(0.3)
 
     # Wait for all downloads to finish
     downloader.shutdown(wait=True)
