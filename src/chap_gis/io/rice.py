@@ -1,5 +1,8 @@
 """Rice field Africa (20m) loader."""
 
+# NOTE: For alternative rice datasets and regions, see:
+# https://www.sciencedirect.com/science/article/pii/S003442572600026X#bib508
+
 from __future__ import annotations
 
 import logging

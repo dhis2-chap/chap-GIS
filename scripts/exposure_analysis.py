@@ -1,4 +1,4 @@
-"""Rwanda-wide mosquito exposure surface (30 m), lazy xarray pipeline.
+"""Generic country-wide mosquito exposure surface (30 m), lazy xarray pipeline.
 
 Driver script that composes chap_gis functions. Everything stays dask-lazy
 until the terminal ``to_netcdf`` / ``to_raster`` calls, which trigger a
@@ -21,7 +21,7 @@ app = App(name="rwanda-exposure", help=__doc__)
 @app.default
 def run(
     *,
-    country: str = "RWA",
+    country: str,
     year_worldcover: int = 2021,
     year_chelsa: int = 2021,
     year_worldpop: int = 2021,
@@ -166,5 +166,5 @@ def run(
         print(f"  People in hotspots: {stats['hotspot_pop']:,.0f} ({stats['pct']:.1f}%)")
 
 
-if __name__ == "__main__":
-    app()
+#if __name__ == "__main__":
+#    app()
