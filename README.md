@@ -41,6 +41,21 @@ Outputs a single `<countrycode>_exposure.nc` file with all the variables in the 
   - Download the tiff file for a country (Africa only)
   - Save the file to `data/inputs` as `<countrycode>_rice_fields.tif` (all lowercased)
 
+### Environment variables
+
+Environment variables must be specified in `.env` file of the project root:
+
+- CHAP_GIS_CACHE
+    The target path for downloading data. After first download, files will be reused. 
+    Remember to clear the cache if changing the country used for analysis. 
+    Default is `data/cache`. 
+
+- CDSE_OAUTH_CLIENT_ID
+    CDSE OAuth client ID needed for some datasets (see requirements).
+
+- CDSE_OAUTH_CLIENT_SECRET
+    CDSE OAuth client secret needed for some datasets (see requirements).
+
 ### How to run
 
 Script location: `scripts/exposure_analysis.py`
@@ -69,18 +84,3 @@ Simplest possible example to run the analysis for Rwanda 2021:
 ```
   uv run scripts/exposure_analysis.py --country=RWA
 ```
-
-### Environment variables
-
-Environment variables must be specified in .env file of the project root:
-
-- CHAP_GIS_CACHE
-    The target path for downloading data. After first download, files will be reused. 
-    Remember to clear the cache if changing the country used for analysis. 
-    Default is `data/cache`. 
-
-- COPERNICUS_S3_ACCESS_KEY
-    Copernicus S3 access key needed to download Copernicus 30m elevation data (see requirements).
-
-- COPERNICUS_S3_SECRET_KEY
-    Copernicus S3 secret key needed to download Copernicus 30m elevation data (see requirements).
