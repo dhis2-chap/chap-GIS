@@ -1,4 +1,10 @@
-"""Crop extent (NASA 30m) loader."""
+"""Crop extent (NASA 30m) loader.
+
+This script requires registering with NASA EarthData, generating a Bearer Token,
+and adding it to environment variables as NASA_EARTHDATA_TOKEN. 
+
+https://urs.earthdata.nasa.gov/documentation/for_users/user_token
+"""
 
 from __future__ import annotations
 
@@ -45,7 +51,7 @@ def download(
     os.makedirs(dirname, exist_ok=True)
 
     # connect and add bearer token
-
+    # https://urs.earthdata.nasa.gov/documentation/for_users/user_token
     fs = fsspec.filesystem(
         "https",
         headers={

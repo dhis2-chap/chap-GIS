@@ -25,8 +25,17 @@ Outputs a single `<countrycode>_exposure.nc` file with all the variables in the 
 
 ### Requirements
 
-- Register and get Copernicus S3 credentials
-  - ... 
+- Register and get Copernicus CDSE OpenEO client credentials (required for elevation and worldcover data):
+    - Register a CDSE account at https://dataspace.copernicus.eu/
+    - Create and get OAuth client credentials
+        - Go to https://shapps.dataspace.copernicus.eu/dashboard/#/
+        - Under User Settings, and OAuth Clients, create a new Client.
+        - Copy the Client ID and Client Secret.
+        - Set these as environment variables CDSE_OAUTH_CLIENT_ID, and CDSE_OAUTH_CLIENT_SECRET.
+    - CDSE allows X free processing "credits" each month. There is no easy way to track credit usage with client credentials.
+      This has to be done programmatically via openeo:
+        - `jobs = conn.list_jobs()` and `conn.job(job_id).describe()`
+        - For more info about monthly free credits, see: https://documentation.dataspace.copernicus.eu/APIs/openEO/credit_usage.html
 - Manually download rice fields data for 2023:
   - Go to: https://zenodo.org/records/13729353
   - Download the tiff file for a country (Africa only)

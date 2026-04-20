@@ -1,4 +1,10 @@
-"""ESA WorldCover 10 m land-cover loader."""
+"""ESA WorldCover 10 m land-cover loader.
+
+This script requires registering with Copernicus Data Space Ecosystem (CDSE), 
+generating an OAuth Client, and adding it to environment variables. 
+
+See README.md in the root folder for instructions. 
+"""
 
 from __future__ import annotations
 
@@ -12,6 +18,7 @@ import rioxarray  # noqa: F401  (registers the .rio accessor)
 import xarray as xr
 import openeo
 import fsspec
+from dotenv import load_dotenv
 
 from .cache import cache_dir
 
@@ -22,6 +29,11 @@ from dhis2eo.data.utils import force_logging
 logger = logging.getLogger(__name__)
 force_logging(logger)
 
+# add env vars
+load_dotenv()
+CDSE_OAUTH_CLIENT_ID = os.getenv('CDSE_OAUTH_CLIENT_ID')
+CDSE_OAUTH_CLIENT_SECRET = os.getenv('CDSE_OAUTH_CLIENT_SECRET')
+
 ##################
 # openeo approach
 
@@ -31,10 +43,13 @@ def fetch_year_openeo(year, bbox, save_path):
     # ...and result in multiple downloaded tiles
 
     # connect to openeo
-    # Note: right now requires manual login only the first time
-    # TODO: switch to passing client key and secret key from env vars
+    # see module docstring for instructions on getting credentials
     conn = openeo.connect("https://openeo.dataspace.copernicus.eu")
-    conn.authenticate_oidc()  # triggers manual login
+    conn.authenticate_oidc_client_credentials(
+        client_id=CDSE_OAUTH_CLIENT_ID,
+        client_secret=CDSE_OAUTH_CLIENT_SECRET,
+        #provider_id='...' # not needed?
+    )
 
     # create bbox dict
     xmin,ymin,xmax,ymax = bbox
@@ -111,78 +126,78 @@ def fetch_years_openeo(
 # aws s3 approach
 # https://esa-worldcover.org/en/data-access
 
-def save_s3_file(fs, fs_path, save_path):
-    logger.info(f'Downloading file {fs_path} to {save_path}')
-    fs.get(fs_path, save_path)
+# def save_s3_file(fs, fs_path, save_path):
+#     logger.info(f'Downloading file {fs_path} to {save_path}')
+#     fs.get(fs_path, save_path)
 
-def fetch_year_s3(
-    year: int,
-    bbox: BBox,
-    dirname: str,
-    prefix: str,
-    overwrite: bool = False,
-) -> list[Path]:
-    """
-    Retrieves WorldCover tile data for a given bbox.
-    Saves tile files to disk, as specified by dirname and prefix.
-    """
-    os.makedirs(dirname, exist_ok=True)
+# def fetch_year_s3(
+#     year: int,
+#     bbox: BBox,
+#     dirname: str,
+#     prefix: str,
+#     overwrite: bool = False,
+# ) -> list[Path]:
+#     """
+#     Retrieves WorldCover tile data for a given bbox.
+#     Saves tile files to disk, as specified by dirname and prefix.
+#     """
+#     os.makedirs(dirname, exist_ok=True)
 
-    # create geometry from bbox
-    from shapely.geometry import box
-    geom = box(*bbox)
+#     # create geometry from bbox
+#     from shapely.geometry import box
+#     geom = box(*bbox)
 
-    # connect and authenticate with s3 storage
-    s3_url_prefix = "https://esa-worldcover.s3.eu-central-1.amazonaws.com"
-    logger.info(f'Connecting to s3 {s3_url_prefix}')
-    fs = fsspec.filesystem("https")
+#     # connect and authenticate with s3 storage
+#     s3_url_prefix = "https://esa-worldcover.s3.eu-central-1.amazonaws.com"
+#     logger.info(f'Connecting to s3 {s3_url_prefix}')
+#     fs = fsspec.filesystem("https")
 
-    # load worldcover grid geojson
-    tile_grid_url = f'{s3_url_prefix}/esa_worldcover_grid.geojson'
-    tile_grid = gpd.read_file(tile_grid_url)
+#     # load worldcover grid geojson
+#     tile_grid_url = f'{s3_url_prefix}/esa_worldcover_grid.geojson'
+#     tile_grid = gpd.read_file(tile_grid_url)
 
-    # get grid tiles intersecting AOI
-    tiles = tile_grid[tile_grid.intersects(geom)]
+#     # get grid tiles intersecting AOI
+#     tiles = tile_grid[tile_grid.intersects(geom)]
 
-    # select version tag, based on the year
-    version = {
-        2020: 'v100',
-        2021: 'v200'
-    }[year]
+#     # select version tag, based on the year
+#     version = {
+#         2020: 'v100',
+#         2021: 'v200'
+#     }[year]
 
-    # create pooled downloader
-    downloader = ThreadPoolExecutor(max_workers=4)
+#     # create pooled downloader
+#     downloader = ThreadPoolExecutor(max_workers=4)
 
-    # process each tile
-    files = []
-    for tile in tiles.ll_tile:
-        logger.info(f'Tile {tile}')
+#     # process each tile
+#     files = []
+#     for tile in tiles.ll_tile:
+#         logger.info(f'Tile {tile}')
 
-        # Determine the save path
-        fs_path = f"{s3_url_prefix}/{version}/{year}/map/ESA_WorldCover_10m_{year}_{version}_{tile}_Map.tif"
-        filename = Path(fs_path).stem
-        save_file = f'{prefix}_{filename}.tif'
-        save_path = (Path(dirname) / save_file).resolve()
-        files.append(save_path)
+#         # Determine the save path
+#         fs_path = f"{s3_url_prefix}/{version}/{year}/map/ESA_WorldCover_10m_{year}_{version}_{tile}_Map.tif"
+#         filename = Path(fs_path).stem
+#         save_file = f'{prefix}_{filename}.tif'
+#         save_path = (Path(dirname) / save_file).resolve()
+#         files.append(save_path)
 
-        # Download or use existing file
-        if overwrite is False and save_path.exists():
-            # File already exist, load from file instead
-            logger.info(f'File already downloaded: {save_path}')
+#         # Download or use existing file
+#         if overwrite is False and save_path.exists():
+#             # File already exist, load from file instead
+#             logger.info(f'File already downloaded: {save_path}')
 
-        else:
-            # Download the data
-            downloader.submit(save_s3_file, fs, fs_path, save_path)
+#         else:
+#             # Download the data
+#             downloader.submit(save_s3_file, fs, fs_path, save_path)
 
-            # TODO: these are large tiles, likely need to save to temporary folder
-            # then crop to bbox and save to target location
-            # ... 
+#             # TODO: these are large tiles, likely need to save to temporary folder
+#             # then crop to bbox and save to target location
+#             # ... 
 
-    # Wait for all downloads to finish
-    downloader.shutdown(wait=True)
+#     # Wait for all downloads to finish
+#     downloader.shutdown(wait=True)
     
-    # Return downloaded files
-    return files
+#     # Return downloaded files
+#     return files
 
 ############
 # main
