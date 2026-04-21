@@ -23,9 +23,13 @@ def load(
     # open as xarray
     ds = xr.open_mfdataset(files)
     da = ds['pop_total']
+    encoding = da.encoding
 
-    # maybe apply mask if needed
-    #da = da.where(da >= 0)
+    # make sure to apply mask
+    da = da.where(da >= 0)
+
+    # convert to float (otherwise breaks things later)
+    da = da.astype('float32')
 
     # make it spatial
     da = da.rio.write_crs("EPSG:4326")
@@ -38,4 +42,6 @@ def load(
         units="people",
         source=f"WorldPop {year}",
     )
+    da.encoding = encoding
+
     return da

@@ -14,7 +14,7 @@ import xarray as xr
 from cyclopts import App
 
 import chap_gis as cgis
-from chap_gis.grid import reproject_to
+from chap_gis.grid import reproject_to, reproject_population_to
 
 
 logging.basicConfig(
@@ -58,6 +58,7 @@ def run(
     grid = cgis.grid.build_grid(
         aoi, resolution=resolution_m / 111_000, crs="EPSG:4326"
     )
+    logger.info(grid)
 
 
     ###########################################################################
@@ -129,9 +130,7 @@ def run(
     )
 
     # reproject to analysis grid
-    # NOTE: right now inflates the pop by repeating total counts
-    # TODO: need to convert to divide the pop by new cell size division
-    population = population.pipe(reproject_to, grid, 'nearest')
+    population = population.pipe(reproject_population_to, grid, 'bilinear')
 
 
     ################
@@ -219,6 +218,37 @@ def run(
     # print(f"  Hotspot threshold (top 10%): {stats['threshold']:.3f}")
     # if "pct" in stats:
     #     print(f"  People in hotspots: {stats['hotspot_pop']:,.0f} ({stats['pct']:.1f}%)")
+
+
+@app.command
+def visualize(dataset_path):
+    """Visualize the various dataset outputs from the analysis."""
+    # open dataset
+    out_dir = Path(dataset_path).parent
+    ds = xr.open_dataset(dataset_path)
+
+    logger.info(ds)
+
+    # make maps for each variable
+    import matplotlib.pyplot as plt
+    for var in ds.data_vars:
+
+        if var == 'spatial_ref':
+            continue
+
+        # prep data
+        logger.info(f'Prepping data for {var}')
+        da = ds[var].coarsen(longitude=10, latitude=10, boundary="trim").mean()
+        logger.info(da)
+
+        # plot and save
+        ax = plt.subplot()
+        da.plot(ax=ax)
+        fig = ax.get_figure()
+        fig.savefig(out_dir / f'{var}.png')
+        
+        # clear figure for next map
+        plt.clf()
 
 
 if __name__ == "__main__":
