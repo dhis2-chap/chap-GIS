@@ -253,6 +253,10 @@ def load(
     ds = xr.open_mfdataset(files)
     da = ds['band_data'].squeeze('band')
 
+    # make it spatial
+    da = da.rio.write_crs("EPSG:4326")
+    da = da.rio.set_spatial_dims(x_dim="x", y_dim="y")
+
     # add metadata
     da.name = "landcover"
     da.attrs.update(

@@ -24,6 +24,10 @@ def load(
     da = xr.open_dataarray(path)
     da = da.squeeze('band')
 
+    # make it spatial
+    da = da.rio.write_crs("EPSG:4326")
+    da = da.rio.set_spatial_dims(x_dim="x", y_dim="y")
+
     # add metadata
     da.name = "rice"
     da.attrs.update(

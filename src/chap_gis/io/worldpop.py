@@ -26,6 +26,10 @@ def load(
 
     # maybe apply mask if needed
     #da = da.where(da >= 0)
+
+    # make it spatial
+    da = da.rio.write_crs("EPSG:4326")
+    da = da.rio.set_spatial_dims(x_dim="x", y_dim="y")
     
     # add metadata
     da.name = "population"

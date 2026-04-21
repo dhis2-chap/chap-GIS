@@ -139,6 +139,10 @@ def load(
     # 0=nd, 1=nocrop, 2=crop
     # ... 
 
+    # make it spatial
+    da = da.rio.write_crs("EPSG:4326")
+    da = da.rio.set_spatial_dims(x_dim="x", y_dim="y")
+
     # add metadata
     da.name = "crop"
     da.attrs.update(

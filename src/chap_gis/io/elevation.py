@@ -223,6 +223,10 @@ def load(
     # convert to dataarray
     da = ds['band_data'].squeeze('band')
 
+    # make it spatial
+    da = da.rio.write_crs("EPSG:4326")
+    da = da.rio.set_spatial_dims(x_dim="x", y_dim="y")
+
     # add metadata
     da.name = "elevation"
     da.attrs.update(

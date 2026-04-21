@@ -5,6 +5,4 @@ CRS written via ``rioxarray``. Reprojection to a target grid is the caller's
 responsibility.
 """
 
-from . import boundaries, cache, chelsa, elevation, worldcover, worldpop
-
-__all__ = ["boundaries", "cache", "chelsa", "elevation", "worldcover", "worldpop"]
+from . import boundaries, cache, chelsa, elevation, rice, worldcover, worldpop

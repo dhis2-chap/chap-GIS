@@ -19,9 +19,11 @@ from .cache import cache_dir
 # borrowing some things from dhis2eo for later integration
 from dhis2eo.utils.types import BBox, DateLike
 from dhis2eo.utils.time import iter_months
+from dhis2eo.data.utils import force_logging
 
 
 logger = logging.getLogger(__name__)
+force_logging(logger)
 
 
 # def fetch_day(variable, year, month, day):
@@ -133,33 +135,15 @@ def load_monthly_tas(
     # open as multifile
     ds = xr.open_mfdataset(files)
 
-    logger.info(ds)
-
-    # chelsa_dir = Path(chelsa_dir)
-    # arrays = []
-    # for month in range(1, 13):
-    #     path = chelsa_dir / filename_template.format(month=month, year=year)
-    #     if not path.exists():
-    #         raise FileNotFoundError(path)
-    #     arrays.append(_open_month(path, chunks))
-
-    # da = xr.concat(arrays, dim="time").astype("float32")
-    # da = da.assign_coords(
-    #     time=pd.date_range(f"{year}-01-01", periods=12, freq="MS")
-    # )
-
-    # mode = _detect_scaling(da) if scaling == "auto" else scaling
-    # if mode == "kelvin_x10":
-    #     da = da / 10.0 - 273.15
-    # elif mode == "celsius_x10":
-    #     da = da / 10.0
-    # # else: celsius, no-op
-
     # convert kelvin to celsius
     ds[variable] -= 273.15
 
     # only return data array
     da = ds[variable]
+
+    # make it spatial
+    da = da.rio.write_crs("EPSG:4326")
+    da = da.rio.set_spatial_dims(x_dim="x", y_dim="y")
 
     # add metadata
     da.name = variable
