@@ -7,6 +7,7 @@ single combined compute.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import logging
 
@@ -197,21 +198,32 @@ def run(
 
     # create final grid with all layers
     logger.info('Creating final analysis dataset')
-    out_ds = xr.Dataset(
-        {
-            "temperature": temperature,
-            "suitability": suitability,
-            "population": population,
-            "exposure": expo,
-            "pop_exposure": pop_exposure,
-        }
-    )
+    # out_ds = xr.Dataset(
+    #     {
+    #         "temperature": temperature,
+    #         "suitability": suitability,
+    #         "population": population,
+    #         "exposure": expo,
+    #         "pop_exposure": pop_exposure,
+    #     }
+    # )
 
     # write to final output netcdf - all lazy steps get computed here
     logger.info(f'Outputting to {out_dir}')
-    nc_path = out_dir / f"{country.lower()}_exposure.nc"
-    out_ds.to_netcdf(nc_path)
-    print(f"  Wrote {nc_path}")
+    breeding.name = "breeding"
+    breeding.to_netcdf(out_dir / "breeding.nc")
+    elev.name = "elev"
+    elev.to_netcdf(out_dir / "elevation.nc")
+    temperature.name = "temperature"
+    temperature.to_netcdf(out_dir / "temperature.nc")
+    suitability.name = "suitability"
+    suitability.to_netcdf(out_dir / "suitability.nc")
+    population.name = "population"
+    population.to_netcdf(out_dir / "population.nc")
+    expo.name = "expo"
+    expo.to_netcdf(out_dir / "exposure.nc")
+    pop_exposure.name = "pop_exposure"
+    pop_exposure.to_netcdf(out_dir / "pop_exposure.nc")
 
     # analysis: compute population exposure hotspots
     # _, stats = cgis.hotspots.identify_hotspots(pop_exposure, population)
@@ -219,33 +231,67 @@ def run(
     # if "pct" in stats:
     #     print(f"  People in hotspots: {stats['hotspot_pop']:,.0f} ({stats['pct']:.1f}%)")
 
+    print("Finished")
+
+
+# @app.command
+# def visualize(dataset_path):
+#     """Visualize the various dataset outputs from the analysis."""
+#     # open dataset
+#     out_dir = Path(dataset_path).parent
+#     ds = xr.open_dataset(dataset_path)
+
+#     logger.info(ds)
+
+#     # make maps for each variable
+#     import matplotlib.pyplot as plt
+#     for var in ds.data_vars:
+
+#         if var == 'spatial_ref':
+#             continue
+
+#         # prep data
+#         logger.info(f'Prepping data for {var}')
+#         da = ds[var].coarsen(longitude=10, latitude=10, boundary="trim").mean()
+#         logger.info(da)
+
+#         # plot and save
+#         ax = plt.subplot()
+#         da.plot(ax=ax)
+#         fig = ax.get_figure()
+#         fig.savefig(out_dir / f'{var}.png')
+        
+#         # clear figure for next map
+#         plt.clf()
+
 
 @app.command
-def visualize(dataset_path):
+def visualize(out_dir):
     """Visualize the various dataset outputs from the analysis."""
     # open dataset
-    out_dir = Path(dataset_path).parent
-    ds = xr.open_dataset(dataset_path)
+    out_dir = Path(out_dir).resolve()
+    logger.info(f'Visualizing nc files in folder {out_dir}')
 
-    logger.info(ds)
-
-    # make maps for each variable
     import matplotlib.pyplot as plt
-    for var in ds.data_vars:
 
-        if var == 'spatial_ref':
-            continue
+    # make maps for each nc file
+    for path in out_dir.glob('*.nc'):
+        logger.info('----------------------------------------------------------')
+        logger.info(f'File: {path}')
+        ds = xr.open_dataset(path)
+        logger.info(ds)
 
         # prep data
+        var = [v for v in ds.data_vars if v != 'spatial_ref'][0]
         logger.info(f'Prepping data for {var}')
         da = ds[var].coarsen(longitude=10, latitude=10, boundary="trim").mean()
-        logger.info(da)
 
         # plot and save
+        logger.info('Plotting data')
         ax = plt.subplot()
         da.plot(ax=ax)
         fig = ax.get_figure()
-        fig.savefig(out_dir / f'{var}.png')
+        fig.savefig(out_dir / f'{path.name}.png')
         
         # clear figure for next map
         plt.clf()
