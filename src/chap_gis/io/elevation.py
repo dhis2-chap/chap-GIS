@@ -78,7 +78,7 @@ def fetch_openeo(bbox, save_path):
 
     # schedule saving to file
     #wc.save_result(format="NetCDF")  # silently ignores saving as netcdf for some reason
-    wc.save_result(format="GeoTIFF")
+    wc.save_result(format="GeoTiff")
 
     # submit as asynch job
     # and wait for job to finish
