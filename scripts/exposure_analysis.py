@@ -197,41 +197,33 @@ def run(
     logger.info('Finalizing and outputting results')
 
     # create final grid with all layers
-    logger.info('Creating final analysis dataset')
-    # out_ds = xr.Dataset(
-    #     {
-    #         "temperature": temperature,
-    #         "suitability": suitability,
-    #         "population": population,
-    #         "exposure": expo,
-    #         "pop_exposure": pop_exposure,
-    #     }
-    # )
+    logger.info('Creating final analysis datasets')
 
     # write to final output netcdf - all lazy steps get computed here
     logger.info(f'Outputting to {out_dir}')
+
     breeding.name = "breeding"
     breeding.to_netcdf(out_dir / "breeding.nc")
+
     elev.name = "elev"
     elev.to_netcdf(out_dir / "elevation.nc")
+
     temperature.name = "temperature"
     temperature.to_netcdf(out_dir / "temperature.nc")
+
     suitability.name = "suitability"
     suitability.to_netcdf(out_dir / "suitability.nc")
+
     population.name = "population"
     population.to_netcdf(out_dir / "population.nc")
+
     expo.name = "expo"
     expo.to_netcdf(out_dir / "exposure.nc")
+
     pop_exposure.name = "pop_exposure"
     pop_exposure.to_netcdf(out_dir / "pop_exposure.nc")
 
-    # analysis: compute population exposure hotspots
-    # _, stats = cgis.hotspots.identify_hotspots(pop_exposure, population)
-    # print(f"  Hotspot threshold (top 10%): {stats['threshold']:.3f}")
-    # if "pct" in stats:
-    #     print(f"  People in hotspots: {stats['hotspot_pop']:,.0f} ({stats['pct']:.1f}%)")
-
-    print("Finished")
+    logger.info("Finished!")
 
 
 # @app.command
