@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import geopandas as gpd
 import numpy as np
-#import odc.geo.xr  # noqa: F401  registers the .odc accessor
+import odc.geo.xr  # noqa: F401  registers the .odc accessor
 import xarray as xr
 from affine import Affine
 from rasterio.enums import Resampling
@@ -68,7 +68,8 @@ def reproject_to(
     the graph, computed only at terminal I/O. Pipeable as
     ``src.pipe(reproject_to, target, "bilinear")``.
     """
-    out = src.rio.reproject_match(target, resampling=getattr(Resampling, resampling))
+    out = src.odc.reproject(target.odc.geobox, resampling=resampling, dst_nodata=float('nan'))
+    #out = src.rio.reproject_match(target, resampling=getattr(Resampling, resampling))
     out.attrs = {**src.attrs}
     return out.rio.write_crs(target.rio.crs)
 
@@ -88,7 +89,8 @@ def reproject_population_to(
     src_density = src / src_res ** 2
 
     # 2. Reproject with bilinear (smooth distribution across fine pixels)
-    reprojected_density = src_density.rio.reproject_match(target, resampling=getattr(Resampling, resampling))
+    #reprojected_density = src_density.rio.reproject_match(target, resampling=getattr(Resampling, resampling))
+    reprojected_density = src_density.odc.reproject(target.odc.geobox, resampling=resampling, dst_nodata=float('nan'))
 
     # 3. Convert back to counts
     reprojected = reprojected_density * tgt_res ** 2
