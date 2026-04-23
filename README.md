@@ -25,42 +25,55 @@ Outputs a single `<countrycode>_exposure.nc` file with all the variables in the 
 
 ### Requirements
 
-- Register and get Copernicus CDSE OpenEO client credentials (required for elevation and worldcover data):
+1. Register and get Copernicus CDSE OpenEO client credentials (required for elevation and worldcover data):
     - Register a CDSE account at https://dataspace.copernicus.eu/
     - Create and get OAuth client credentials
         - Go to https://shapps.dataspace.copernicus.eu/dashboard/#/
         - Under User Settings, and OAuth Clients, create a new Client.
         - Copy the Client ID and Client Secret.
-        - Set these as environment variables CDSE_OAUTH_CLIENT_ID, and CDSE_OAUTH_CLIENT_SECRET.
-    - CDSE allows X free processing "credits" each month. There is no easy way to track credit usage with client credentials.
-      This has to be done programmatically via openeo:
+        - Set these as environment variables `CDSE_OAUTH_CLIENT_ID`, and `CDSE_OAUTH_CLIENT_SECRET`.
+    - CDSE allows X free processing "credits" each month. There is no easy way to track credit usage with client credentials. This has to be done programmatically via openeo:
         - `jobs = conn.list_jobs()` and `conn.job(job_id).describe()`
         - For more info about monthly free credits, see: https://documentation.dataspace.copernicus.eu/APIs/openEO/credit_usage.html
-- Manually download rice fields data for 2023:
-  - Go to: https://zenodo.org/records/13729353
-  - Download the tiff file for a country (Africa only)
-  - Save the file to `data/inputs` as `<countrycode>_rice_fields.tif` (all lowercased)
 
-### Environment variables
+2. Manually download rice fields data for 2023:
+    - Go to: https://zenodo.org/records/13729353
+    - Download the tiff file for a country (Africa only)
+    - Save the file to `data/inputs` as `<countrycode>_rice_fields.tif` (all lowercased)
 
-Environment variables must be specified in `.env` file of the project root:
+3. Setup the required environment variables:
+    - Create an `.env` file at the project root folder, with the following parameters:
+        - `CDSE_OAUTH_CLIENT_ID`
+            CDSE OAuth client ID needed for some datasets (see requirements).
+        - `CDSE_OAUTH_CLIENT_SECRET`
+            CDSE OAuth client secret needed for some datasets (see requirements).
+        - `CHAP_GIS_CACHE` (optional, default is `data/cache`)
+            The target path for downloading data. After first download, files will be reused. 
+            Remember to clear the cache if changing the country used for analysis. 
 
-- CHAP_GIS_CACHE
-    The target path for downloading data. After first download, files will be reused. 
-    Remember to clear the cache if changing the country used for analysis. 
-    Default is `data/cache`. 
-
-- CDSE_OAUTH_CLIENT_ID
-    CDSE OAuth client ID needed for some datasets (see requirements).
-
-- CDSE_OAUTH_CLIENT_SECRET
-    CDSE OAuth client secret needed for some datasets (see requirements).
-
-### How to run
+### Running the analysis
 
 Script location: `scripts/exposure_analysis.py`
 
-To run the analysis call this script from commandline with the following parameters:
+Simplest possible example to run the analysis for Rwanda 2021 (the default year when not specified, see [the section on adjusting parameters](#adjusting-analysis-parameters)):
+
+```
+  uv run scripts/exposure_analysis.py --country=RWA
+```
+
+The result of the analysis should output a series of .nc files in the output folder, as specified by the `CHAP_GIS_CACHE` environment variables (the default is `data/outputs`). 
+
+### Visualizing the results
+
+To visualize the results of the analysis you can run the `vizualize` subcommand pointing to the output folder, e.g.:
+
+```
+  uv run scripts/exposure_analysis.py visualize data/outputs
+```
+
+### Adjusting analysis parameters
+
+The following parameters can be used to modify the analysis:
 
 - country:
     ISO3 3-letter country code. Used to download administrative boundaries, worldpop data,
@@ -78,9 +91,3 @@ To run the analysis call this script from commandline with the following paramet
 
 The latest possible year where we have data from all sources is 2021. This is the default if none
 of the years are specified. 
-
-Simplest possible example to run the analysis for Rwanda 2021:
-
-```
-  uv run scripts/exposure_analysis.py --country=RWA
-```
