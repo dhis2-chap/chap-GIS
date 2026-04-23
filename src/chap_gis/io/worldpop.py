@@ -25,8 +25,8 @@ def load(
     da = ds['pop_total']
     encoding = da.encoding
 
-    # make sure to apply mask
-    da = da.where(da >= 0)
+    # set nans to 0s
+    da = da.fillna(0)
 
     # convert to float (otherwise breaks things later)
     da = da.astype('float32')

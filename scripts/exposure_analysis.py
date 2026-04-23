@@ -226,37 +226,6 @@ def run(
     logger.info("Finished!")
 
 
-# @app.command
-# def visualize(dataset_path):
-#     """Visualize the various dataset outputs from the analysis."""
-#     # open dataset
-#     out_dir = Path(dataset_path).parent
-#     ds = xr.open_dataset(dataset_path)
-
-#     logger.info(ds)
-
-#     # make maps for each variable
-#     import matplotlib.pyplot as plt
-#     for var in ds.data_vars:
-
-#         if var == 'spatial_ref':
-#             continue
-
-#         # prep data
-#         logger.info(f'Prepping data for {var}')
-#         da = ds[var].coarsen(longitude=10, latitude=10, boundary="trim").mean()
-#         logger.info(da)
-
-#         # plot and save
-#         ax = plt.subplot()
-#         da.plot(ax=ax)
-#         fig = ax.get_figure()
-#         fig.savefig(out_dir / f'{var}.png')
-        
-#         # clear figure for next map
-#         plt.clf()
-
-
 @app.command
 def visualize(out_dir):
     """Visualize the various dataset outputs from the analysis."""
@@ -283,7 +252,7 @@ def visualize(out_dir):
         ax = plt.subplot()
         da.plot(ax=ax)
         fig = ax.get_figure()
-        fig.savefig(out_dir / f'{path.name}.png')
+        fig.savefig(out_dir / f'{path.name}.png', dpi=300)
         
         # clear figure for next map
         plt.clf()
