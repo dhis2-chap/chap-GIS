@@ -11,8 +11,12 @@ import os
 from pathlib import Path
 import logging
 
+import dask
+from nbformat import writes
 import xarray as xr
 from cyclopts import App
+
+import dask
 
 import chap_gis as cgis
 from chap_gis.grid import reproject_to, reproject_population_to
@@ -200,29 +204,42 @@ def run(
     logger.info('Creating final analysis datasets')
 
     # write to final output netcdf - all lazy steps get computed here
-    logger.info(f'Outputting to {out_dir}')
+    # logger.info(f'Outputting to {out_dir}')
 
-    breeding.name = "breeding"
-    breeding.to_netcdf(out_dir / "breeding.nc")
+    # breeding.name = "breeding"
+    # breeding.to_netcdf(out_dir / "breeding.nc")
 
-    elev.name = "elev"
-    elev.to_netcdf(out_dir / "elevation.nc")
+    # elev.name = "elev"
+    # elev.to_netcdf(out_dir / "elevation.nc")
 
-    temperature.name = "temperature"
-    temperature.to_netcdf(out_dir / "temperature.nc")
+    # temperature.name = "temperature"
+    # temperature.to_netcdf(out_dir / "temperature.nc")
 
-    suitability.name = "suitability"
-    suitability.to_netcdf(out_dir / "suitability.nc")
+    # suitability.name = "suitability"
+    # suitability.to_netcdf(out_dir / "suitability.nc")
 
-    population.name = "population"
-    population.to_netcdf(out_dir / "population.nc")
+    # population.name = "population"
+    # population.to_netcdf(out_dir / "population.nc")
 
-    expo.name = "expo"
-    expo.to_netcdf(out_dir / "exposure.nc")
+    # expo.name = "expo"
+    # expo.to_netcdf(out_dir / "exposure.nc")
 
-    pop_exposure.name = "pop_exposure"
-    pop_exposure.to_netcdf(out_dir / "pop_exposure.nc")
+    # pop_exposure.name = "pop_exposure"
+    # pop_exposure.to_netcdf(out_dir / "pop_exposure.nc")
 
+    writes = [
+    xr.Dataset({"breeding": breeding}).to_netcdf(out_dir / "breeding.nc", compute=False),
+    xr.Dataset({"elev": elev}).to_netcdf(out_dir / "elevation.nc", compute=False),
+    xr.Dataset({"temperature": temperature}).to_netcdf(out_dir / "temperature.nc", compute=False   ),
+    xr.Dataset({"suitability": suitability}).to_netcdf(out_dir / "suitability.nc", compute=False),
+    xr.Dataset({"population": population}).to_netcdf(out_dir / "population.nc", compute=False),
+    xr.Dataset({"expo": expo}).to_netcdf(out_dir / "exposure.nc", compute=False),
+    xr.Dataset({"pop_exposure": pop_exposure}).to_netcdf(out_dir / "pop_exposure.nc", compute=False),
+    ]
+    logger.info('Triggering compute for all outputs')
+
+    dask.compute(*writes)
+    
     logger.info("Finished!")
 
 
