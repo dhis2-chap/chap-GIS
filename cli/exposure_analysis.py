@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 app = App(name="exposure-analysis", help=__doc__)
 
 
-@app.default
-def run(
+@app.command
+def analyze(
     *,
     country: str,
     year_worldcover: int = 2021,
@@ -233,7 +233,9 @@ def run(
 
 
 @app.command
-def visualize(out_dir):
+def visualize(
+    out_dir: str,
+) -> None:
     """Visualize the various dataset outputs from the analysis."""
     # open dataset
     out_dir = Path(out_dir).resolve()
@@ -265,7 +267,12 @@ def visualize(out_dir):
 
 
 @app.command
-def aggregate(out_dir, geojson_file, id_field): # , disease_csv)
+def aggregate(
+    out_dir: str,
+    geojson_file: str,
+    id_field: str,
+    #disease_csv: str,
+) -> None:
     """Aggregate the various dataset outputs to a geojson file and output to chap CSV."""
     out_dir = Path(out_dir).resolve()
     logger.info(f'Aggregating nc files in folder {out_dir} to geojson file {geojson_file}')

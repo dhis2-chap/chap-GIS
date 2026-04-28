@@ -6,9 +6,9 @@
 - **`data/inputs/`** - manually downloaded data (which we won't download dynamically via functions)
 - **`data/cache/`** - dynamically downloaded and cached data (ignored by .gitignore to avoid tracking very large data)
 - **`data/outputs/`** - final data outputs produced by the scripts (ignored by .gitignore to avoid tracking very large data)
-- **`scripts/`** — concrete scripts that use the functionality of the package.
-- **`raw_scripts/`** — inspiration scripts; perform a wanted operation but are not adapted to the GIS conventions used here.
+- **`cli/`** — concrete CLI scripts that use the functionality of the package.
 - **`notes/data_sources/`** — markdown files, each describing a data source.
+- **`raw_scripts/`** — inspiration scripts; perform a wanted operation but are not adapted to the GIS conventions used here.
 
 ## Conventions
 
@@ -53,12 +53,10 @@ Outputs a single `<countrycode>_exposure.nc` file with all the variables in the 
 
 ### Running the analysis
 
-Script location: `scripts/exposure_analysis.py`
-
 Simplest possible example to run the analysis for Rwanda 2021 (the default year when not specified, see [the section on adjusting parameters](#adjusting-analysis-parameters)):
 
 ```
-  uv run scripts/exposure_analysis.py --country=RWA
+  uv run cli/exposure_analysis.py analyze --country=RWA
 ```
 
 The result of the analysis should output a series of .nc files in the output folder, as specified by the `CHAP_GIS_CACHE` environment variables (the default is `data/outputs`). 
@@ -68,7 +66,7 @@ The result of the analysis should output a series of .nc files in the output fol
 To visualize the results of the analysis you can run the `vizualize` subcommand pointing to the output folder, e.g.:
 
 ```
-  uv run scripts/exposure_analysis.py visualize data/outputs
+  uv run cli/exposure_analysis.py visualize data/outputs
 ```
 
 ### Aggregate to regions and produce Chap-compatible CSV files
@@ -76,7 +74,7 @@ To visualize the results of the analysis you can run the `vizualize` subcommand 
 To analyze the gridded output data in Chap, it's first necessary to aggregate the gridded outputs to region boundaries and produce Chap-compatible CSV files. Assuming you have downloaded the below boundary file to :
 
 ```
-  uv run scripts/exposure_analysis.py aggregate data/outputs data/cache/geoBoundaries-RWA-ADM2.geojson shapeISO
+  uv run cli/exposure_analysis.py aggregate data/outputs data/cache/geoBoundaries-RWA-ADM2.geojson shapeISO
 ```
 
 This will:
