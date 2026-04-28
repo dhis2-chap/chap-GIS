@@ -71,7 +71,22 @@ To visualize the results of the analysis you can run the `vizualize` subcommand 
   uv run scripts/exposure_analysis.py visualize data/outputs
 ```
 
+### Aggregate to regions and produce Chap-compatible CSV files
+
+To analyze the gridded output data in Chap, it's first necessary to aggregate the gridded outputs to region boundaries and produce Chap-compatible CSV files. Assuming you have downloaded the below boundary file to :
+
+```
+  uv run scripts/exposure_analysis.py aggregate data/outputs data/cache/geoBoundaries-RWA-ADM2.geojson shapeISO
+```
+
+This will:
+
+1. Create a CSV file for every .nc file in the specified outputs folder, aggregated to the specified geojson file, using the specified region id property. 
+2. Merge all the CSV files and produce a Chap-compatible CSV file containined all the variables. 
+
 ### Adjusting analysis parameters
+
+#### Analysis parameters
 
 The following parameters can be used to modify the analysis:
 
@@ -91,3 +106,12 @@ The following parameters can be used to modify the analysis:
 
 The latest possible year where we have data from all sources is 2021. This is the default if none
 of the years are specified. 
+
+#### Visualizing parameters
+
+...
+
+
+#### Aggregate parameters
+
+...

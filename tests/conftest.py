@@ -6,8 +6,17 @@ import numpy as np
 import pytest
 import rioxarray  # noqa: F401
 import xarray as xr
+from pathlib import Path
 
 from chap_gis.io import boundaries
+
+
+SCRIPT_DIR = Path(__file__).parent
+
+
+@pytest.fixture
+def outputs_folder():
+    return SCRIPT_DIR.parent / 'data' / 'outputs'
 
 
 def _grid(shape=(20, 20), crs="EPSG:32636", res=30.0):
@@ -30,6 +39,12 @@ def grid():
 @pytest.fixture
 def rwanda_adm0():
     gdf = boundaries.load('RWA', level=0)
+    return gdf
+
+
+@pytest.fixture
+def rwanda_adm2():
+    gdf = boundaries.load('RWA', level=2)
     return gdf
 
 

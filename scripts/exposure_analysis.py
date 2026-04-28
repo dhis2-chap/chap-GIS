@@ -11,11 +11,17 @@ import os
 from pathlib import Path
 import logging
 
+import numpy as np
+import geopandas as gpd
+import rioxarray
 import xarray as xr
 from cyclopts import App
 
+from dhis2eo.integrations.chap import dataframe_to_chap_csv
+
 import chap_gis as cgis
 from chap_gis.grid import reproject_to, reproject_population_to
+from chap_gis.aggregate import aggregate_to_regions
 
 
 logging.basicConfig(
@@ -252,10 +258,63 @@ def visualize(out_dir):
         ax = plt.subplot()
         da.plot(ax=ax)
         fig = ax.get_figure()
-        fig.savefig(out_dir / f'{path.name}.png', dpi=300)
+        fig.savefig(out_dir / f'{path.stem}.png', dpi=300)
         
         # clear figure for next map
         plt.clf()
+
+
+@app.command
+def aggregate(out_dir, geojson_file, id_field): # , disease_csv)
+    """Aggregate the various dataset outputs to a geojson file and output to chap CSV."""
+    out_dir = Path(out_dir).resolve()
+    logger.info(f'Aggregating nc files in folder {out_dir} to geojson file {geojson_file}')
+
+    # open geojson file
+    gdf = gpd.read_file(geojson_file)
+    logger.info('Input geojson:')
+    logger.info(gdf)
+
+    # aggregate for each nc file
+    for path in out_dir.glob('*.nc'):
+        logger.info('')
+        logger.info('----------------------------------------------------------')
+        logger.info(f'File: {path}')
+
+        # open nc file
+        ds = rioxarray.open_rasterio(path)
+        logger.info('Input xarray:')
+        logger.info(ds)
+
+        # aggregate to geojson
+        # TODO: right now we have no way to map each nc file to specific statistic
+        agg = aggregate_to_regions(ds, gdf, statistic='mean', id_field=id_field)
+
+        # convert to df
+        df = agg.to_dataframe()
+        logger.info('Aggregated results:')
+        # hacky add time column
+        # TODO: all output nc files need to add `time`` dimension
+        df['time'] = np.datetime64('2021-01-01')
+        logger.info(df)
+
+        # determine start and end from time column values
+        start = df['time'].min()
+        end = df['time'].max()
+        logger.info(f'Time range detected: {start} to {end}')
+
+        # write to chap compatible csv
+        file_name = path.stem
+        out_path = out_dir / f'{file_name}.csv'
+        logger.info(f'Writing to CSV: {out_path}')
+        df.to_csv(out_path)
+
+    # finally, merge all csv files to a common region and time grid, including an input health csv dataset
+    # see: https://climate-tools.dhis2.org/guides/import-chap/harmonize-to-chap/
+    # ... 
+
+    # output to chap csv
+    #dataframe_to_chap_csv(...)
 
 
 if __name__ == "__main__":

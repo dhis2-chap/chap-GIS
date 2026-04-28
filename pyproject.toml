@@ -28,6 +28,7 @@ dependencies = [
     "python-dotenv",
     "jupyter",
     "openeo",
+    "exactextract",
 ]
 
 [dependency-groups]
