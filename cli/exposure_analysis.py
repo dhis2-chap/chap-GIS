@@ -7,7 +7,7 @@ single combined compute.
 
 from __future__ import annotations
 
-import os
+import gc
 from pathlib import Path
 import logging
 
@@ -16,22 +16,37 @@ import geopandas as gpd
 import rioxarray
 import xarray as xr
 from cyclopts import App
+from rasterio.enums import Resampling
 
 from dhis2eo.integrations.chap import dataframe_to_chap_csv
 
 import chap_gis as cgis
+from shapely.geometry import box
 from chap_gis.grid import reproject_to, reproject_population_to
 from chap_gis.aggregate import aggregate_to_regions
 
 
+# setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s %(module)s:%(funcName)s %(message)s', 
+    format='%(asctime)s %(module)s:%(funcName)s %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
 
+
+
+# create CLI app
 app = App(name="exposure-analysis", help=__doc__)
+
+
+
+def save_and_clear(da: xr.DataArray, name: str, path: Path) -> None:
+    """Helper function to save a DataArray to disk and clear it from memory."""
+    logger.info(f"Writing {name}...")
+    da.rename(name).to_netcdf(path)
+    del da
+    gc.collect()
 
 
 @app.command
@@ -45,142 +60,103 @@ def analyze(
     out_dir: Path = Path("data/outputs"),
 ) -> None:
     """Compute and write the country-wide exposure rasters."""
-    
+
     logger.info(f'Starting malaria exposure analysis for country: {country}')
     out_dir.mkdir(parents=True, exist_ok=True)
 
-
-    ###########################################################################
-    # analysis setup
-    logger.info('\n\n##########################################################')
-    logger.info('Setting up analysis')
-
-    # load area of interest / country with buffer
-    logger.info('Loading country geometry')
+    # 1. Analysis Setup
+    logger.info('\n' + '#' * 58 + '\nSetting up analysis')
     aoi = cgis.io.boundaries.load(country, level=0)
-    buffered = cgis.aoi.buffered(aoi, distance=0.0027)  # ~300 m buffer  # NOTE: note sure that we need...
-
-    # build analysis grid for area
-    logger.info(f'Building analysis grid at {resolution_m} meter resolution')
+    
+    # Grid creation (using meters to degrees approximation)
     grid = cgis.grid.build_grid(
         aoi, resolution=resolution_m / 111_000, crs="EPSG:4326"
     )
-    logger.info(grid)
+    logger.info(f"Grid built. Bounds: {grid.rio.bounds()} | CRS: {grid.rio.crs}")
 
+    # Buffer for data fetching to avoid edge artifacts
+    buffered = aoi.to_crs("EPSG:3857").buffer(300).to_crs("EPSG:4326")
 
-    ###########################################################################
-    # prepare data sources
-    logger.info('\n\n##########################################################')
-    logger.info('Preparing data sources')
+    # 2. Data Preparation
+    logger.info('\n' + '#' * 58 + '\nPreparing data sources')
 
-
-    ###############
-    # landcover
-
-    # load landcover and project to analysis grid
-    logger.info(f'Loading worldcover data for year {year_worldcover}')
+    # --- Landcover ---
+    logger.info(f'Loading WorldCover {year_worldcover}')
     landcover = (
         cgis.io.worldcover.load(buffered, year=year_worldcover)
-        .pipe(reproject_to, grid, "mode")
+        .rio.reproject_match(grid, resampling=Resampling.mode)
+        .fillna(0)
         .astype("uint8")
     )
 
-
-    ##############
-    # elevation
-
-    # load elevation and project to analysis grid
-    logger.info('Loading elevation data')
+    # --- Elevation ---
+    logger.info('Loading Elevation')
     elev_native = cgis.io.elevation.load(buffered)
-    elev = elev_native.pipe(reproject_to, grid, "bilinear")
+    
+    # Ensure overlap
+    if not box(*elev_native.rio.bounds()).intersects(box(*grid.rio.bounds())):
+        logger.warning("Elevation extent mismatch; refetching with larger buffer...")
+        buffered_large = aoi.to_crs("EPSG:3857").buffer(1000).to_crs("EPSG:4326")
+        elev_native = cgis.io.elevation.load(buffered_large)
 
+    elev = elev_native.rio.reproject_match(grid, resampling=Resampling.bilinear)
 
-    #############
-    # temperature
-
-    # load monthly temperature data and calculate annual mean
-    logger.info(f'Loading and computing chelsa temperature data for year {year_chelsa}')
+    # --- Temperature (CHELSA) ---
+    logger.info(f'Loading CHELSA Temperature {year_chelsa}')
     tas_annual = (
         cgis.io.chelsa.load_monthly_tas(aoi, year=year_chelsa)
         .pipe(cgis.climate.annual_mean)
     )
 
-    # reproject to analysis grid
-    tas_on_grid = tas_annual.pipe(reproject_to, grid, "bilinear")
+    # CRITICAL: Standardize dimension names to x/y before reprojection
+    dim_map = {'longitude': 'x', 'latitude': 'y'}
+    tas_annual = tas_annual.rename({k: v for k, v in dim_map.items() if k in tas_annual.dims})
+    
+    tas_on_grid = tas_annual.rio.reproject_match(grid, resampling=Resampling.bilinear)
 
-
-    #############
-    # downscale temperature
-
-    # create coarse elevation grid at same res as temperature
-    logger.info(f'Coarsen elevation data to resolution of chelsa temperature data')
+    # --- Downscaling setup ---
+    logger.info('Coarsening elevation for lapse-rate downscaling')
+    # Coarsen elevation to match CHELSA resolution, then match back to grid
     coarse_elev_on_grid = (
         elev_native
-        .pipe(reproject_to, tas_annual, "average")
-        .pipe(reproject_to, grid, "bilinear")
+        .rio.reproject_match(tas_annual, resampling=Resampling.average)
+        .rename({k: v for k, v in dim_map.items() if k in elev_native.dims}) # ensure x,y
+        .rio.reproject_match(grid, resampling=Resampling.bilinear)
     )
 
-    # downscale temperature based on elevation
-    logger.info('Combine temperature with elevation to downscale to analysis grid')
+    logger.info('Applying lapse-rate downscaling')
     temperature = cgis.climate.lapse_rate_downscale(
         tas_on_grid, coarse_elev_on_grid, elev
     )
 
-
-    ################
-    # population
-
-    # load population
-    logger.info('Loading worldpop population data')
-    population = cgis.io.worldpop.load(
-        country, year=year_worldpop
+    # --- Population ---
+    logger.info('Loading WorldPop')
+    population = cgis.io.worldpop.load(country, year=year_worldpop)
+    if population.ndim > 2:
+        population = population.squeeze(drop=True)
+    
+    population = (
+        population.rename({k: v for k, v in dim_map.items() if k in population.dims})
+        .rio.reproject_match(grid, resampling=Resampling.bilinear)
     )
 
-    # reproject to analysis grid
-    population = population.pipe(reproject_population_to, grid, 'bilinear')
-
-
-    ################
-    # rice fields
-
-    # load rice fields data and project to analysis grid
-    logger.info('Loading rice data')
+    # --- Rice Mask ---
+    logger.info('Loading Rice data')
     rice_mask = (
         cgis.io.rice.load(country)
-        .pipe(reproject_to, grid, "nearest")
-        .pipe(lambda r: (r > 0).rio.write_crs(grid.rio.crs))  # TODO: dont think we need to write crs here, or should at least do so consistently
+        .rio.reproject_match(grid, resampling=Resampling.nearest)
+        .pipe(lambda r: (r > 0).rio.write_crs(grid.rio.crs))
     )
 
+    # 3. Exposure Analysis
+    logger.info('\n' + '#' * 58 + '\nRunning analyses')
 
-    #############################################################################
-    # analysis
-    logger.info('\n\n############################################################')
-    logger.info('Running analyses')
-
-
-    ##############
-    # analysis: compute suitability
-
-    # calculate thermal malaria suitability from the downscaled temperature
-    logger.info('Computing thermal suitability')
     suitability = temperature.pipe(cgis.suitability.thermal_suitability)
-
-
-    #################
-    # analysis: compute breeding sites
-
-    # compute breeding site mask from landcover and rice fields
-    logger.info('Compute breeding sites')
+    
     breeding = cgis.landcover.breeding_site_mask(
         landcover, rice=rice_mask, water_edge_buffer=2
     )
 
-
-    #################
-    # analysis: compute exposure based on various layers
-
-    # compute exposure layer based on breeding sites, elevation, suitability, land mask, and water mask
-    logger.info('Compute exposure layer')
     expo = cgis.exposure.exposure(
         breeding,
         elev,
@@ -190,46 +166,29 @@ def analyze(
         water_mask=cgis.landcover.water_mask(landcover),
     )
 
-    # weight exposure by population
-    logger.info('Weight exposure by population')
     pop_exposure = (population * expo).rename("pop_exposure")
     pop_exposure.attrs.update(long_name="Population-weighted exposure", units="people")
-    pop_exposure = pop_exposure.rio.write_crs(grid.rio.crs)
 
+    # 4. Finalization
+    logger.info('\n' + '#' * 58 + '\nFinalizing and outputting results')
+    
+    ds = xr.Dataset({
+        "elev": elev,
+        "breeding": breeding.astype(float),
+        "temperature": temperature,
+        "suitability": suitability,
+        "population": population,
+        "expo": expo,
+        "pop_exposure": pop_exposure
+    }).compute()
 
-    ###################################################################################
-    # finalizing
-    logger.info('\n\n##################################################################')
-    logger.info('Finalizing and outputting results')
+    for var_name in ds.data_vars:
+        if var_name != 'spatial_ref':
+            out_path = out_dir / f"{var_name}.nc"
+            ds[var_name].to_netcdf(out_path)
+            logger.info(f"Saved {var_name} to {out_path}")
 
-    # create final grid with all layers
-    logger.info('Creating final analysis datasets')
-
-    # write to final output netcdf - all lazy steps get computed here
-    logger.info(f'Outputting to {out_dir}')
-
-    breeding.name = "breeding"
-    breeding.to_netcdf(out_dir / "breeding.nc")
-
-    elev.name = "elev"
-    elev.to_netcdf(out_dir / "elevation.nc")
-
-    temperature.name = "temperature"
-    temperature.to_netcdf(out_dir / "temperature.nc")
-
-    suitability.name = "suitability"
-    suitability.to_netcdf(out_dir / "suitability.nc")
-
-    population.name = "population"
-    population.to_netcdf(out_dir / "population.nc")
-
-    expo.name = "expo"
-    expo.to_netcdf(out_dir / "exposure.nc")
-
-    pop_exposure.name = "pop_exposure"
-    pop_exposure.to_netcdf(out_dir / "pop_exposure.nc")
-
-    logger.info("Finished!")
+    logger.info("Finished successfully!")
 
 
 @app.command
@@ -253,7 +212,7 @@ def visualize(
         # prep data
         var = [v for v in ds.data_vars if v != 'spatial_ref'][0]
         logger.info(f'Prepping data for {var}')
-        da = ds[var].coarsen(longitude=10, latitude=10, boundary="trim").mean()
+        da = ds[var].coarsen(x=10, y=10, boundary="trim").mean()
 
         # plot and save
         logger.info('Plotting data')
