@@ -16,7 +16,6 @@ import geopandas as gpd
 import rioxarray
 import xarray as xr
 from cyclopts import App
-from rasterio.enums import Resampling
 
 from dhis2eo.integrations.chap import dataframe_to_chap_csv
 
@@ -88,7 +87,7 @@ def analyze(
     logger.info(f'Loading WorldCover {year_worldcover}')
     landcover = (
         cgis.io.worldcover.load(buffered, year=year_worldcover)
-        .rio.reproject_match(grid, resampling=Resampling.mode)
+        .pipe(reproject_to, grid, "mode")
         .fillna(0)
         .astype("uint8")
     )
@@ -103,7 +102,7 @@ def analyze(
         buffered_large = aoi.to_crs("EPSG:3857").buffer(1000).to_crs("EPSG:4326")
         elev_native = cgis.io.elevation.load(buffered_large)
 
-    elev = elev_native.rio.reproject_match(grid, resampling=Resampling.bilinear)
+    elev = elev_native.pipe(reproject_to, grid, "bilinear")
 
     # --- Temperature (CHELSA) ---
     logger.info(f'Loading CHELSA Temperature {year_chelsa}')
@@ -116,16 +115,16 @@ def analyze(
     dim_map = {'longitude': 'x', 'latitude': 'y'}
     tas_annual = tas_annual.rename({k: v for k, v in dim_map.items() if k in tas_annual.dims})
     
-    tas_on_grid = tas_annual.rio.reproject_match(grid, resampling=Resampling.bilinear)
+    tas_on_grid = tas_annual.pipe(reproject_to, grid, "bilinear")
 
     # --- Downscaling setup ---
     logger.info('Coarsening elevation for lapse-rate downscaling')
     # Coarsen elevation to match CHELSA resolution, then match back to grid
     coarse_elev_on_grid = (
         elev_native
-        .rio.reproject_match(tas_annual, resampling=Resampling.average)
+        .pipe(reproject_to, tas_annual, "average")
         .rename({k: v for k, v in dim_map.items() if k in elev_native.dims}) # ensure x,y
-        .rio.reproject_match(grid, resampling=Resampling.bilinear)
+        .pipe(reproject_to, grid, "bilinear")
     )
 
     logger.info('Applying lapse-rate downscaling')
@@ -141,15 +140,15 @@ def analyze(
     
     population = (
         population.rename({k: v for k, v in dim_map.items() if k in population.dims})
-        .rio.reproject_match(grid, resampling=Resampling.bilinear)
+        .pipe(reproject_population_to, grid, 'bilinear')
     )
 
     # --- Rice Mask ---
     logger.info('Loading Rice data')
     rice_mask = (
         cgis.io.rice.load(country)
-        .rio.reproject_match(grid, resampling=Resampling.nearest)
-        .pipe(lambda r: (r > 0).rio.write_crs(grid.rio.crs))
+        .pipe(reproject_to, grid, "nearest")
+        .pipe(lambda r: (r > 0).rio.write_crs(grid.rio.crs))  # TODO: dont think we need to write crs here, or should at least do so consistently
     )
 
 
