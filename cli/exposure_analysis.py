@@ -66,7 +66,7 @@ def analyze(
 
     #####################
     # 1. Analysis Setup
-    logger.info('\n' + '#' * 58 + '\nSetting up analysis')
+    logger.info('\n\n' + '#' * 58 + '\nSetting up analysis')
     aoi = cgis.io.boundaries.load(country, level=0)
     
     # Grid creation (using meters to degrees approximation)
@@ -81,7 +81,7 @@ def analyze(
 
     #######################
     # 2. Data Preparation
-    logger.info('\n' + '#' * 58 + '\nPreparing data sources')
+    logger.info('\n\n' + '#' * 58 + '\nPreparing data sources')
 
     # --- Landcover ---
     logger.info(f'Loading WorldCover {year_worldcover}')
@@ -110,10 +110,6 @@ def analyze(
         cgis.io.chelsa.load_monthly_tas(aoi, year=year_chelsa)
         .pipe(cgis.climate.annual_mean)
     )
-
-    # CRITICAL: Standardize dimension names to x/y before reprojection
-    dim_map = {'longitude': 'x', 'latitude': 'y'}
-    tas_annual = tas_annual.rename({k: v for k, v in dim_map.items() if k in tas_annual.dims})
     
     tas_on_grid = tas_annual.pipe(reproject_to, grid, "bilinear")
 
@@ -123,7 +119,6 @@ def analyze(
     coarse_elev_on_grid = (
         elev_native
         .pipe(reproject_to, tas_annual, "average")
-        .rename({k: v for k, v in dim_map.items() if k in elev_native.dims}) # ensure x,y
         .pipe(reproject_to, grid, "bilinear")
     )
 
@@ -139,7 +134,7 @@ def analyze(
         population = population.squeeze(drop=True)
     
     population = (
-        population.rename({k: v for k, v in dim_map.items() if k in population.dims})
+        population
         .pipe(reproject_population_to, grid, 'bilinear')
     )
 
@@ -154,7 +149,7 @@ def analyze(
 
     ########################
     # 3. Exposure Analysis
-    logger.info('\n' + '#' * 58 + '\nRunning analyses')
+    logger.info('\n\n' + '#' * 58 + '\nRunning analyses')
 
     suitability = temperature.pipe(cgis.suitability.thermal_suitability)
     
@@ -181,7 +176,7 @@ def analyze(
     
     output_mapping = {
         "elev": elev,
-        "breeding": breeding.astype(float),
+        "breeding": breeding, #.astype(float),
         "temperature": temperature,
         "suitability": suitability,
         "population": population,
@@ -191,8 +186,8 @@ def analyze(
 
     for da_name, da in output_mapping.items():
         out_path = out_dir / f"{da_name}.nc"
+        logger.info(f"Saving {da_name} to {out_path}...")
         da.to_netcdf(out_path)  # this will automatically compute all lazy operations
-        logger.info(f"Saved {da_name} to {out_path}")
 
     logger.info("Finished successfully!")
 
