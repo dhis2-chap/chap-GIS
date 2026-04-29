@@ -64,6 +64,8 @@ def analyze(
     logger.info(f'Starting malaria exposure analysis for country: {country}')
     out_dir.mkdir(parents=True, exist_ok=True)
 
+
+    #####################
     # 1. Analysis Setup
     logger.info('\n' + '#' * 58 + '\nSetting up analysis')
     aoi = cgis.io.boundaries.load(country, level=0)
@@ -77,6 +79,8 @@ def analyze(
     # Buffer for data fetching to avoid edge artifacts
     buffered = aoi.to_crs("EPSG:3857").buffer(300).to_crs("EPSG:4326")
 
+
+    #######################
     # 2. Data Preparation
     logger.info('\n' + '#' * 58 + '\nPreparing data sources')
 
@@ -148,6 +152,8 @@ def analyze(
         .pipe(lambda r: (r > 0).rio.write_crs(grid.rio.crs))
     )
 
+
+    ########################
     # 3. Exposure Analysis
     logger.info('\n' + '#' * 58 + '\nRunning analyses')
 
@@ -169,24 +175,25 @@ def analyze(
     pop_exposure = (population * expo).rename("pop_exposure")
     pop_exposure.attrs.update(long_name="Population-weighted exposure", units="people")
 
+
+    ###################
     # 4. Finalization
     logger.info('\n' + '#' * 58 + '\nFinalizing and outputting results')
     
-    ds = xr.Dataset({
+    output_mapping = {
         "elev": elev,
         "breeding": breeding.astype(float),
         "temperature": temperature,
         "suitability": suitability,
         "population": population,
         "expo": expo,
-        "pop_exposure": pop_exposure
-    }).compute()
+        "pop_exposure": pop_exposure,
+    }
 
-    for var_name in ds.data_vars:
-        if var_name != 'spatial_ref':
-            out_path = out_dir / f"{var_name}.nc"
-            ds[var_name].to_netcdf(out_path)
-            logger.info(f"Saved {var_name} to {out_path}")
+    for da_name, da in output_mapping.items():
+        out_path = out_dir / f"{da_name}.nc"
+        da.to_netcdf(out_path)  # this will automatically compute all lazy operations
+        logger.info(f"Saved {da_name} to {out_path}")
 
     logger.info("Finished successfully!")
 
