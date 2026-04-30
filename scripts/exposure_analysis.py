@@ -71,7 +71,7 @@ def run(
     # --- Landcover ---
     logger.info(f'Loading WorldCover {year_worldcover}')
     landcover = (
-        cgis.io.worldcover.load(buffered, year=year_worldcover)
+        cgis.io.worldcover.load(buffered, year=year_worldcover,country=country)
         .rio.reproject_match(grid, resampling=Resampling.mode)
         .fillna(0)
         .astype("uint8")
@@ -79,20 +79,20 @@ def run(
 
     # --- Elevation ---
     logger.info('Loading Elevation')
-    elev_native = cgis.io.elevation.load(buffered)
+    elev_native = cgis.io.elevation.load(buffered, country=country)
     
     # Ensure overlap
     if not box(*elev_native.rio.bounds()).intersects(box(*grid.rio.bounds())):
         logger.warning("Elevation extent mismatch; refetching with larger buffer...")
         buffered_large = aoi.to_crs("EPSG:3857").buffer(1000).to_crs("EPSG:4326")
-        elev_native = cgis.io.elevation.load(buffered_large)
+        elev_native = cgis.io.elevation.load(buffered_large, country=country)
 
     elev = elev_native.rio.reproject_match(grid, resampling=Resampling.bilinear)
 
     # --- Temperature (CHELSA) ---
     logger.info(f'Loading CHELSA Temperature {year_chelsa}')
     tas_annual = (
-        cgis.io.chelsa.load_monthly_tas(aoi, year=year_chelsa)
+        cgis.io.chelsa.load_monthly_tas(aoi, year=year_chelsa, country=country)
         .pipe(cgis.climate.annual_mean)
     )
 
@@ -208,7 +208,6 @@ def visualize(out_dir):
         
         # clear figure for next map
         plt.clf()
-
 
 if __name__ == "__main__":
     app()

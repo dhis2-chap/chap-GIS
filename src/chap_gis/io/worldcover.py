@@ -233,6 +233,7 @@ def download(
 def load(
     aoi: gpd.GeoDataFrame,
     year: int = 2021,
+    country: str = None,
 ) -> xr.DataArray:
     """
     Retrieve dataset for WorldCover cropped to aoi via openeo
@@ -248,7 +249,7 @@ def load(
         end=year,
         bbox=bounds,
         dirname=cache_dir(),
-        prefix='worldcover',
+        prefix= f'{country}_worldcover' if country and country.strip() else 'worldcover',
     )
     ds = xr.open_mfdataset(files)
     da = ds['band_data'].squeeze('band')

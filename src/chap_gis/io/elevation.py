@@ -201,6 +201,7 @@ def download(
 
 def load(
         aoi: GeoDataFrame,
+        country: str = None,
     ) -> xr.DataArray:
     """Load a digital elevation model (DEM) as a dask-backed DataArray on its native grid.
 
@@ -214,7 +215,7 @@ def load(
     files = download(
         bbox=bbox,
         dirname=cache_dir(),
-        prefix='copernicus_elevation',
+        prefix= f'{country}_copernicus_elevation' if country and country.strip() else 'copernicus_elevation',
     )
 
     # open as xarray
