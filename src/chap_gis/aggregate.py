@@ -137,5 +137,8 @@ def aggregate_to_regions(grid: xr.DataArray, regions: gpd.GeoDataFrame, statisti
                                         include_cols=[id_field],
                                         output=writer)
 
+    # rename default aggregation xarray dims
+    agg_ds = agg_ds.rename({'feature': id_field, 'band': 'time'})
+
     # return
     return agg_ds

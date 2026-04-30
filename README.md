@@ -74,7 +74,7 @@ To visualize the results of the analysis you can run the `vizualize` subcommand 
 To analyze the gridded output data in Chap, it's first necessary to aggregate the gridded outputs to region boundaries and produce Chap-compatible CSV files. Assuming you have downloaded the below boundary file to :
 
 ```
-  uv run cli/exposure_analysis.py aggregate data/outputs data/cache/geoBoundaries-RWA-ADM2.geojson shapeISO
+  uv run cli/exposure_analysis.py aggregate data/outputs RWA 2
 ```
 
 This will:
