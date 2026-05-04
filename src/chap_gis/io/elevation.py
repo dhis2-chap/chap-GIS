@@ -201,20 +201,22 @@ def download(
 
 def load(
         aoi: GeoDataFrame,
+        country: str | None = None,
     ) -> xr.DataArray:
     """Load a digital elevation model (DEM) as a dask-backed DataArray on its native grid.
 
     The file's CRS is preserved on the returned DataArray. Nodata pixels are
-    converted to NaN. 
+    converted to NaN.
     """
     # get bbox from aoi
     bbox = list(map(float, aoi.total_bounds))
 
     # get files from cache or download
+    prefix = f'{country}_copernicus_elevation' if country and country.strip() else 'copernicus_elevation'
     files = download(
         bbox=bbox,
         dirname=cache_dir(),
-        prefix='copernicus_elevation',
+        prefix=prefix,
     )
 
     # open as xarray

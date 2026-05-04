@@ -18,7 +18,7 @@ def load(
                                   end=str(year),
                                   country_code=iso3,
                                   dirname=cache_dir(),
-                                  prefix='worldpop_population')
+                                  prefix=f'{iso3}_worldpop_population')
     
     # open as xarray
     ds = xr.open_mfdataset(files)

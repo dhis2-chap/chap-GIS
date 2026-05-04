@@ -113,6 +113,7 @@ def download(
 def load_monthly_tas(
     aoi: GeoDataFrame,
     year: int,
+    country: str | None = None,
 ) -> xr.DataArray:
     """Load monthly CHELSA near-surface air temperature rasters for a given year.
 
@@ -123,12 +124,13 @@ def load_monthly_tas(
 
     # get files from cache or download
     variable = 'tas'  # temperature
+    prefix = f'{country}_chelsa_temperature' if country and country.strip() else 'chelsa_temperature'
     files = download(
         start=f'{year}-01',
         end=f'{year}-12',
         bbox=bbox,
         dirname=cache_dir(),
-        prefix='chelsa_temperature',
+        prefix=prefix,
         variable=variable,
     )
 

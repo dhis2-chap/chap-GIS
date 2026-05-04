@@ -82,7 +82,7 @@ def analyze(
     # load landcover and project to analysis grid
     logger.info(f'Loading worldcover data for year {year_worldcover}')
     landcover = (
-        cgis.io.worldcover.load(buffered, year=year_worldcover)
+        cgis.io.worldcover.load(buffered, year=year_worldcover, country=country)
         .pipe(reproject_to, grid, "mode")
         .astype("uint8")
     )
@@ -93,7 +93,7 @@ def analyze(
 
     # load elevation and project to analysis grid
     logger.info('Loading elevation data')
-    elev_native = cgis.io.elevation.load(buffered)
+    elev_native = cgis.io.elevation.load(buffered, country=country)
     elev = elev_native.pipe(reproject_to, grid, "bilinear")
 
 
@@ -103,7 +103,7 @@ def analyze(
     # load monthly temperature data and calculate annual mean
     logger.info(f'Loading and computing chelsa temperature data for year {year_chelsa}')
     tas_annual = (
-        cgis.io.chelsa.load_monthly_tas(aoi, year=year_chelsa)
+        cgis.io.chelsa.load_monthly_tas(aoi, year=year_chelsa, country=country)
         .pipe(cgis.climate.annual_mean)
     )
 
@@ -204,32 +204,33 @@ def analyze(
     logger.info('\n\n##################################################################')
     logger.info('Finalizing and outputting results')
 
-    # create final grid with all layers
-    logger.info('Creating final analysis datasets')
+    # Bundle layers into a single Dataset and trigger one combined compute.
+    # The seven outputs share common upstream nodes (elevation, landcover,
+    # suitability, ...), so a single .compute() de-duplicates that work vs
+    # calling .to_netcdf() seven times on independent graphs.
+    logger.info('Computing all layers in a single pass')
+    ds = xr.Dataset({
+        "breeding": breeding,
+        "elev": elev,
+        "temperature": temperature,
+        "suitability": suitability,
+        "population": population,
+        "expo": expo,
+        "pop_exposure": pop_exposure,
+    }).compute()
 
-    # write to final output netcdf - all lazy steps get computed here
     logger.info(f'Outputting to {out_dir}')
-
-    breeding.name = "breeding"
-    breeding.to_netcdf(out_dir / "breeding.nc")
-
-    elev.name = "elev"
-    elev.to_netcdf(out_dir / "elevation.nc")
-
-    temperature.name = "temperature"
-    temperature.to_netcdf(out_dir / "temperature.nc")
-
-    suitability.name = "suitability"
-    suitability.to_netcdf(out_dir / "suitability.nc")
-
-    population.name = "population"
-    population.to_netcdf(out_dir / "population.nc")
-
-    expo.name = "expo"
-    expo.to_netcdf(out_dir / "exposure.nc")
-
-    pop_exposure.name = "pop_exposure"
-    pop_exposure.to_netcdf(out_dir / "pop_exposure.nc")
+    output_filenames = {
+        "breeding": "breeding.nc",
+        "elev": "elevation.nc",
+        "temperature": "temperature.nc",
+        "suitability": "suitability.nc",
+        "population": "population.nc",
+        "expo": "exposure.nc",
+        "pop_exposure": "pop_exposure.nc",
+    }
+    for var_name, filename in output_filenames.items():
+        ds[var_name].to_netcdf(out_dir / filename)
 
     logger.info("Finished!")
 
