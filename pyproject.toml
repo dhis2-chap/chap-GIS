@@ -31,6 +31,9 @@ dependencies = [
     "exactextract",
 ]
 
+[project.scripts]
+chap-gis = "chap_gis.cli:app"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
