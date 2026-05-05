@@ -18,8 +18,7 @@ import xarray as xr
 import openeo
 from dotenv import load_dotenv
 
-from .cache import cache_dir
-from ._naming import dataset_prefix
+from .cache import cache_dir, cache_key, cached_download
 
 # borrowing some things from dhis2eo for later integration
 from dhis2eo.utils.types import BBox, DateLike
@@ -89,26 +88,16 @@ def download(
     omitted it is derived from ``country_code`` and the module ``dataset_id``.
     """
     dirname = Path(dirname or cache_dir())
-    dirname.mkdir(parents=True, exist_ok=True)
-    prefix = prefix or dataset_prefix(country_code, dataset_id)
+    prefix = prefix or cache_key(dataset_id, country_code)
 
-    start_year = int(start)
-    end_year = int(end)
-    files = []
-    for year in range(start_year, end_year + 1):
-        logger.info(f'Year {year}')
-
-        save_file = f'{prefix}_{year}.tif'
-        save_path = (dirname / save_file).resolve()
-        files.append(save_path)
-
-        if overwrite is False and save_path.exists():
-            logger.info(f'File already downloaded: {save_path}')
-        else:
-            logger.info(f'Fetching data for {year}')
-            fetch_year_openeo(year, bbox, save_path)
-
-    return files
+    return cached_download(
+        list(range(int(start), int(end) + 1)),
+        lambda year, path: fetch_year_openeo(year, bbox, path),
+        dirname=dirname,
+        name_fn=lambda year: f"{prefix}_{year}.tif",
+        overwrite=overwrite,
+        log=logger,
+    )
 
 
 def load(

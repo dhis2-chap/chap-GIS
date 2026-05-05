@@ -39,7 +39,7 @@ Outputs a single `<countrycode>_exposure.nc` file with all the variables in the 
 2. Manually download rice fields data for 2023:
     - Go to: https://zenodo.org/records/13729353
     - Download the tiff file for a country (Africa only)
-    - Save the file to `data/inputs` as `<countrycode>_rice_fields.tif` (all lowercased)
+    - Save the file to `data/inputs` as `<countrycode>_jiang_rice_fields.tif` (all lowercased)
 
 3. Setup the required environment variables:
     - Create an `.env` file at the project root folder, with the following parameters:

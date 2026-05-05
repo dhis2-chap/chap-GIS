@@ -2,9 +2,9 @@
 
 The dataset is hosted on Zenodo (CC-BY-4.0). ``download()`` fetches the
 country's TIFF(s) automatically; tiled countries are merged on the fly into a
-single ``data/inputs/{iso3}_rice_fields.tif``. If the dataset doesn't cover
-the requested country, or auto-download fails, ``download()`` raises with the
-manual instructions from the README.
+single ``data/inputs/{iso3_lower}_jiang_rice_fields.tif``. If the dataset
+doesn't cover the requested country, or auto-download fails, ``download()``
+raises with the manual instructions from the README.
 """
 
 # NOTE: For alternative rice datasets and regions, see:
@@ -24,7 +24,7 @@ import xarray as xr
 from geopandas import GeoDataFrame
 from rioxarray.merge import merge_arrays
 
-from .cache import cache_dir
+from .cache import cache_dir, cache_key
 from dhis2eo.utils.types import BBox, DateLike
 
 
@@ -80,7 +80,7 @@ _README_INSTRUCTIONS = (
     f"  1. Open https://zenodo.org/records/{ZENODO_RECORD}\n"
     "  2. Download the .tif file(s) for your country (Africa only).\n"
     "  3. If multiple tiles, merge them with `rioxarray.merge.merge_arrays`.\n"
-    "  4. Save as `data/inputs/{iso3_lower}_rice_fields.tif`."
+    "  4. Save as `data/inputs/{iso3_lower}_jiang_rice_fields.tif`."
 )
 
 
@@ -146,7 +146,7 @@ def download(
         raise ValueError("rice.download requires country_code")
     iso3 = country_code.upper()
 
-    save_path = _inputs_dir() / f"{iso3.lower()}_rice_fields.tif"
+    save_path = _inputs_dir() / f"{cache_key(dataset_id, iso3)}.tif"
     if save_path.exists() and not overwrite:
         logger.info(f"Rice file already staged: {save_path}")
         return [save_path]

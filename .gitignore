@@ -20,3 +20,6 @@ wheels/
 data/cache/
 data/outputs/
 data/inputs/
+
+# Generated test fixtures (regenerated on demand by tests/conftest.py)
+tests/data/*.tif

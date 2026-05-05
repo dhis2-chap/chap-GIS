@@ -9,8 +9,7 @@ from dhis2eo.data.worldpop import pop_total
 from dhis2eo.utils.types import DateLike
 from geopandas import GeoDataFrame
 
-from .cache import cache_dir
-from ._naming import dataset_prefix
+from .cache import cache_dir, cache_key
 
 
 dataset_id = "worldpop_population_yearly"
@@ -31,7 +30,7 @@ def download(
     """
     dirname = Path(dirname or cache_dir())
     dirname.mkdir(parents=True, exist_ok=True)
-    prefix = prefix or dataset_prefix(country_code, dataset_id)
+    prefix = prefix or cache_key(dataset_id, country_code)
 
     return pop_total.yearly.download(
         start=str(start),

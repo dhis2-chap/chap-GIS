@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import os
 import logging
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import rioxarray
 import xarray as xr
 from geopandas import GeoDataFrame
 
-from .cache import cache_dir
-from ._naming import dataset_prefix
+from .cache import cache_dir, cache_key, cached_download
 
 # borrowing some things from dhis2eo for later integration
 from dhis2eo.utils.types import BBox, DateLike
@@ -64,29 +61,22 @@ def download(
     omitted it is derived from ``country_code`` and the module ``dataset_id``.
     """
     dirname = Path(dirname or cache_dir())
-    dirname.mkdir(parents=True, exist_ok=True)
-    prefix = prefix or dataset_prefix(country_code, dataset_id)
-
-    downloader = ThreadPoolExecutor(max_workers=4)
+    prefix = prefix or cache_key(dataset_id, country_code)
 
     start_year, start_month = map(int, str(start).split('-'))
     end_year, end_month = map(int, str(end).split('-'))
-    files = []
-    for year, month in iter_months(start_year, start_month, end_year, end_month):
-        logger.info(f'Month {year}-{month}')
+    items = list(iter_months(start_year, start_month, end_year, end_month))
 
-        save_file = f'{prefix}_{year}-{str(month).zfill(2)}.tif'
-        save_path = (dirname / save_file).resolve()
-        files.append(save_path)
-
-        if overwrite is False and save_path.exists():
-            logger.info(f'File already downloaded: {save_path}')
-        else:
-            downloader.submit(fetch_month, _VARIABLE, bbox, year, month, save_path)
-
-    downloader.shutdown(wait=True)
-
-    return files
+    return cached_download(
+        items,
+        lambda ym, path: fetch_month(_VARIABLE, bbox, ym[0], ym[1], path),
+        dirname=dirname,
+        name_fn=lambda ym: f"{prefix}_{ym[0]}-{ym[1]:02d}.tif",
+        overwrite=overwrite,
+        parallel=True,
+        max_workers=4,
+        log=logger,
+    )
 
 
 def load(

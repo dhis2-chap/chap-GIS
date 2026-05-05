@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import numpy as np
 import pytest
 import rioxarray  # noqa: F401
@@ -13,6 +14,20 @@ from chap_gis.io import boundaries
 
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR / "data"
+
+
+def _ensure_synthetic_rasters() -> None:
+    """Build gitignored test rasters on demand using helpers from data/_build.py."""
+    rice_path = DATA_DIR / "xxx_jiang_rice_fields.tif"
+    if rice_path.exists():
+        return
+    spec = importlib.util.spec_from_file_location("_build", DATA_DIR / "_build.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod._rice_raster().rio.to_raster(rice_path)
+
+
+_ensure_synthetic_rasters()
 
 
 def pytest_addoption(parser):
