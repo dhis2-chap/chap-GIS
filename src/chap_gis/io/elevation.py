@@ -17,8 +17,7 @@ import xarray as xr
 import openeo
 from dotenv import load_dotenv
 
-from .cache import cache_dir
-from ._naming import dataset_prefix
+from .cache import cache_dir, cache_key, cached_download
 
 # borrowing some things from dhis2eo for later integration
 from dhis2eo.utils.types import BBox, DateLike
@@ -88,19 +87,16 @@ def download(
     if bbox is None:
         raise TypeError("elevation.download requires bbox")
     dirname = Path(dirname or cache_dir())
-    dirname.mkdir(parents=True, exist_ok=True)
-    prefix = prefix or dataset_prefix(country_code, dataset_id)
+    prefix = prefix or cache_key(dataset_id, country_code)
 
-    save_file = f'{prefix}.tif'
-    save_path = (dirname / save_file).resolve()
-    files = [save_path]
-
-    if overwrite is False and save_path.exists():
-        logger.info(f'File already downloaded: {save_path}')
-    else:
-        fetch_openeo(bbox, save_path)
-
-    return files
+    return cached_download(
+        [None],
+        lambda _, path: fetch_openeo(bbox, path),
+        dirname=dirname,
+        name_fn=lambda _: f"{prefix}.tif",
+        overwrite=overwrite,
+        log=logger,
+    )
 
 
 def load(

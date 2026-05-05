@@ -20,8 +20,7 @@ import pystac_client
 import fsspec
 from dotenv import load_dotenv
 
-from .cache import cache_dir
-from ._naming import dataset_prefix
+from .cache import cache_dir, cache_key, cached_download
 
 # borrowing some things from dhis2eo for later integration
 from dhis2eo.utils.types import BBox, DateLike
@@ -61,8 +60,7 @@ def download(
     if bbox is None:
         raise TypeError("crop.download requires bbox")
     dirname = Path(dirname or cache_dir())
-    dirname.mkdir(parents=True, exist_ok=True)
-    prefix = prefix or dataset_prefix(country_code, dataset_id)
+    prefix = prefix or cache_key(dataset_id, country_code)
 
     fs = fsspec.filesystem(
         "https",
@@ -79,24 +77,20 @@ def download(
         bbox=bbox,
     )
 
-    files = []
-    for item in search.items():
-        logger.info(f'Tile {item}')
+    # Tif file is under a weird string key, so best to just find the first .tif string
+    fs_paths = [
+        next(asset.href for asset in item.assets.values() if asset.href.endswith('.tif'))
+        for item in search.items()
+    ]
 
-        # Tif file is under a weird string key, so best to just find the first .tif string
-        fs_path = [asset.href for asset in item.assets.values() if asset.href.endswith('.tif')][0]
-
-        filename = Path(fs_path).name
-        save_file = f'{prefix}_{filename}'
-        save_path = (dirname / save_file).resolve()
-        files.append(save_path)
-
-        if overwrite is False and save_path.exists():
-            logger.info(f'File already downloaded: {save_path}')
-        else:
-            save_to_file(fs, fs_path, save_path)
-
-    return files
+    return cached_download(
+        fs_paths,
+        lambda fs_path, path: save_to_file(fs, fs_path, path),
+        dirname=dirname,
+        name_fn=lambda fs_path: f"{prefix}_{Path(fs_path).name}",
+        overwrite=overwrite,
+        log=logger,
+    )
 
 
 def load(

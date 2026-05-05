@@ -78,7 +78,7 @@ def main() -> None:
         out = HERE / f"geoBoundaries-XXX-ADM{level}.geojson"
         gdf.to_file(out, driver="GeoJSON")
         print(f"wrote {out} ({out.stat().st_size} bytes)")
-    rice_path = HERE / "xxx_rice_fields.tif"
+    rice_path = HERE / "xxx_jiang_rice_fields.tif"
     _rice_raster().rio.to_raster(rice_path)
     print(f"wrote {rice_path} ({rice_path.stat().st_size} bytes)")
 
