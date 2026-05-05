@@ -29,6 +29,7 @@ dependencies = [
     "jupyter",
     "openeo",
     "exactextract",
+    "pydantic>=2",
 ]
 
 [project.scripts]
