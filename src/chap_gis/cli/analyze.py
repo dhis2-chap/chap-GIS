@@ -59,7 +59,7 @@ def analyze(
     # load landcover and project to analysis grid
     logger.info(f'Loading worldcover data for year {year_worldcover}')
     landcover = (
-        cgis.io.worldcover.load(buffered, year=year_worldcover, country=country)
+        cgis.io.worldcover.load(buffered, start=year_worldcover, end=year_worldcover, country_code=country)
         .pipe(reproject_to, grid, "mode")
         .astype("uint8")
     )
@@ -70,7 +70,7 @@ def analyze(
 
     # load elevation and project to analysis grid
     logger.info('Loading elevation data')
-    elev_native = cgis.io.elevation.load(buffered, country=country)
+    elev_native = cgis.io.elevation.load(buffered, country_code=country)
     elev = elev_native.pipe(reproject_to, grid, "bilinear")
 
 
@@ -80,7 +80,7 @@ def analyze(
     # load monthly temperature data and calculate annual mean
     logger.info(f'Loading and computing chelsa temperature data for year {year_chelsa}')
     tas_annual = (
-        cgis.io.chelsa.load_monthly_tas(aoi, year=year_chelsa, country=country)
+        cgis.io.chelsa.load(aoi, start=f'{year_chelsa}-01', end=f'{year_chelsa}-12', country_code=country)
         .pipe(cgis.climate.annual_mean)
     )
 
@@ -112,7 +112,7 @@ def analyze(
     # load population
     logger.info('Loading worldpop population data')
     population = cgis.io.worldpop.load(
-        country, year=year_worldpop
+        start=year_worldpop, end=year_worldpop, country_code=country
     )
 
     # reproject to analysis grid
@@ -125,7 +125,7 @@ def analyze(
     # load rice fields data and project to analysis grid
     logger.info('Loading rice data')
     rice_mask = (
-        cgis.io.rice.load(country)
+        cgis.io.rice.load(country_code=country)
         .pipe(reproject_to, grid, "nearest")
         .pipe(lambda r: (r > 0).rio.write_crs(grid.rio.crs))  # TODO: dont think we need to write crs here, or should at least do so consistently
     )

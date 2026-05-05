@@ -15,6 +15,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
+import rioxarray  # noqa: F401  registers the .rio accessor
+import xarray as xr
 from shapely.geometry import Polygon
 
 
@@ -56,11 +59,28 @@ def _adm2() -> gpd.GeoDataFrame:
     )
 
 
+def _rice_raster() -> xr.DataArray:
+    """Synthetic 16x16 rice raster aligned with the XXX unit-square AOI."""
+    data = np.zeros((1, 16, 16), dtype="uint8")
+    data[0, 6:10, 6:10] = 1  # a small "rice patch" near the center
+    xs = (np.arange(16) + 0.5) / 16.0
+    ys = (np.arange(16)[::-1] + 0.5) / 16.0
+    da = xr.DataArray(
+        data,
+        dims=("band", "y", "x"),
+        coords={"band": [1], "y": ys, "x": xs},
+    )
+    return da.rio.write_crs("EPSG:4326")
+
+
 def main() -> None:
     for level, gdf in [(0, _adm0()), (2, _adm2())]:
         out = HERE / f"geoBoundaries-XXX-ADM{level}.geojson"
         gdf.to_file(out, driver="GeoJSON")
         print(f"wrote {out} ({out.stat().st_size} bytes)")
+    rice_path = HERE / "xxx_rice_fields.tif"
+    _rice_raster().rio.to_raster(rice_path)
+    print(f"wrote {rice_path} ({rice_path.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":
