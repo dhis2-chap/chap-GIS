@@ -15,9 +15,9 @@ def test_load_population():
     year = 2021
 
     # test that data downloads and returns correctly
-    da = load(country, year)
+    da = load(start=year, end=year, country_code=country)
     assert isinstance(da, xr.DataArray)
-    
+
     # test that source file is located in cachedir
     pth = Path(da.encoding['source'])
     assert str(cache_dir()) in str(pth)
@@ -27,7 +27,7 @@ def test_population_reprojects():
     # load population
     country = 'RWA'
     year = 2021
-    population = load(country, year)
+    population = load(start=year, end=year, country_code=country)
 
     # load country
     aoi = chap_gis.io.boundaries.load(country, level=0)

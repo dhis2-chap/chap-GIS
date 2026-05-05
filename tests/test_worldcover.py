@@ -11,7 +11,7 @@ from chap_gis.io.cache import cache_dir
 def test_load_worldcover(rwanda_adm0):
     # test that data downloads and returns correctly
     year = 2021
-    da = load(rwanda_adm0, year)
+    da = load(rwanda_adm0, start=year, end=year)
     logging.info(da)
     
     assert isinstance(da, xr.DataArray)

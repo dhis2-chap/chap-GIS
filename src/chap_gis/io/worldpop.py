@@ -1,46 +1,82 @@
-"""WorldPop population loader + density-preserving reproject helper."""
+"""WorldPop population loader."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import xarray as xr
 from dhis2eo.data.worldpop import pop_total
+from dhis2eo.utils.types import DateLike
+from geopandas import GeoDataFrame
 
 from .cache import cache_dir
+from ._naming import dataset_prefix
+
+
+dataset_id = "worldpop_population_yearly"
+
+
+def download(
+    start: DateLike,
+    end: DateLike,
+    *,
+    country_code: str,
+    dirname: str | Path | None = None,
+    prefix: str | None = None,
+    overwrite: bool = False,
+) -> list[Path]:
+    """Download WorldPop yearly population rasters for ``country_code``.
+
+    Delegates to :func:`dhis2eo.data.worldpop.pop_total.yearly.download`.
+    """
+    dirname = Path(dirname or cache_dir())
+    dirname.mkdir(parents=True, exist_ok=True)
+    prefix = prefix or dataset_prefix(country_code, dataset_id)
+
+    return pop_total.yearly.download(
+        start=str(start),
+        end=str(end),
+        country_code=country_code,
+        dirname=dirname,
+        prefix=prefix,
+        overwrite=overwrite,
+    )
+
 
 def load(
-    iso3: str,
-    year: int,
+    aoi: GeoDataFrame | None = None,
+    *,
+    start: DateLike,
+    end: DateLike,
+    country_code: str,
 ) -> xr.DataArray:
-    """Load a WorldPop people-per-pixel raster as a lazy DataArray."""
-    
-    # find files from cache or download
-    files = pop_total.yearly.download(start=str(year),
-                                  end=str(year),
-                                  country_code=iso3,
-                                  dirname=cache_dir(),
-                                  prefix=f'{iso3}_worldpop_population')
-    
-    # open as xarray
+    """Load a WorldPop people-per-pixel raster as a lazy DataArray.
+
+    ``aoi`` is accepted for protocol symmetry but ignored — WorldPop is fetched
+    by ``country_code`` (ISO3) directly.
+    """
+    files = download(
+        start=start,
+        end=end,
+        country_code=country_code,
+    )
+
     ds = xr.open_mfdataset(files)
     da = ds['pop_total']
     encoding = da.encoding
 
-    # set nans to 0s
     da = da.fillna(0)
-
-    # convert to float (otherwise breaks things later)
     da = da.astype('float32')
 
-    # make it spatial
     da = da.rio.write_crs("EPSG:4326")
     da = da.rio.set_spatial_dims(x_dim="x", y_dim="y")
-    
-    # add metadata
+
     da.name = "population"
     da.attrs.update(
         long_name="Population count per pixel",
+        standard_name="number_concentration_of_people_in_air",
         units="people",
-        source=f"WorldPop {year}",
+        source=f"WorldPop {start}..{end}",
     )
     da.encoding = encoding
 
