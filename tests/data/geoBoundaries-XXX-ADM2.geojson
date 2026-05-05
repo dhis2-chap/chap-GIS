@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"name": "geoBoundaries-XXX-ADM2",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "shapeName": "SW", "shapeISO": "XXX", "shapeID": "XXX-ADM2-SW", "shapeGroup": "XXX", "shapeType": "ADM2" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 0.0, 0.0 ], [ 0.5, 0.0 ], [ 0.5, 0.5 ], [ 0.0, 0.5 ], [ 0.0, 0.0 ] ] ] } },
+{ "type": "Feature", "properties": { "shapeName": "SE", "shapeISO": "XXX", "shapeID": "XXX-ADM2-SE", "shapeGroup": "XXX", "shapeType": "ADM2" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 0.5, 0.0 ], [ 1.0, 0.0 ], [ 1.0, 0.5 ], [ 0.5, 0.5 ], [ 0.5, 0.0 ] ] ] } },
+{ "type": "Feature", "properties": { "shapeName": "NW", "shapeISO": "XXX", "shapeID": "XXX-ADM2-NW", "shapeGroup": "XXX", "shapeType": "ADM2" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 0.0, 0.5 ], [ 0.5, 0.5 ], [ 0.5, 1.0 ], [ 0.0, 1.0 ], [ 0.0, 0.5 ] ] ] } },
+{ "type": "Feature", "properties": { "shapeName": "NE", "shapeISO": "XXX", "shapeID": "XXX-ADM2-NE", "shapeGroup": "XXX", "shapeType": "ADM2" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 0.5, 0.5 ], [ 1.0, 0.5 ], [ 1.0, 1.0 ], [ 0.5, 1.0 ], [ 0.5, 0.5 ] ] ] } }
+]
+}

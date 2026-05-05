@@ -6,6 +6,7 @@ import xarray as xr
 from chap_gis.io.crop import load
 from chap_gis.io.cache import cache_dir
 
+@pytest.mark.integration
 def test_load_rice(rwanda_adm0):
     # test that data downloads and returns correctly
     da = load(rwanda_adm0)

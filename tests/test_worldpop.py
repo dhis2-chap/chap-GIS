@@ -9,6 +9,7 @@ from chap_gis.io.worldpop import load
 from chap_gis.io.cache import cache_dir
 from chap_gis.grid import reproject_population_to
 
+@pytest.mark.integration
 def test_load_population():
     country = 'RWA'
     year = 2021
@@ -21,6 +22,7 @@ def test_load_population():
     pth = Path(da.encoding['source'])
     assert str(cache_dir()) in str(pth)
 
+@pytest.mark.integration
 def test_population_reprojects():
     # load population
     country = 'RWA'

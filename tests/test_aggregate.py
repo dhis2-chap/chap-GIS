@@ -1,10 +1,12 @@
 import logging
 
+import pytest
 import rioxarray
 import xarray as xr
 
 from chap_gis.aggregate import aggregate_to_regions
 
+@pytest.mark.integration
 def test_aggregate_real(rwanda_adm2, outputs_folder):
     regions = rwanda_adm2
     logging.info(regions)

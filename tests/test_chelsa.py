@@ -6,6 +6,7 @@ import xarray as xr
 from chap_gis.io.chelsa import load_monthly_tas
 from chap_gis.io.cache import cache_dir
 
+@pytest.mark.integration
 def test_load_chelsa(rwanda_adm0):
     # test that data downloads and returns correctly
     year = 2021

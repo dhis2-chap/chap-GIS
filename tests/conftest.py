@@ -12,6 +12,25 @@ from chap_gis.io import boundaries
 
 
 SCRIPT_DIR = Path(__file__).parent
+DATA_DIR = SCRIPT_DIR / "data"
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-integration",
+        action="store_true",
+        default=False,
+        help="Run integration tests that require network access or external credentials",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--run-integration"):
+        return
+    skip_marker = pytest.mark.skip(reason="needs --run-integration")
+    for item in items:
+        if "integration" in item.keywords:
+            item.add_marker(skip_marker)
 
 
 @pytest.fixture
@@ -46,6 +65,18 @@ def rwanda_adm0():
 def rwanda_adm2():
     gdf = boundaries.load('RWA', level=2)
     return gdf
+
+
+@pytest.fixture
+def xxx_adm0():
+    import geopandas as gpd
+    return gpd.read_file(DATA_DIR / "geoBoundaries-XXX-ADM0.geojson")
+
+
+@pytest.fixture
+def xxx_adm2():
+    import geopandas as gpd
+    return gpd.read_file(DATA_DIR / "geoBoundaries-XXX-ADM2.geojson")
 
 
 @pytest.fixture
