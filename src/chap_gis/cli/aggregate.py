@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import rioxarray
 import xarray as xr
+import numpy as np
 
 from dhis2eo.integrations.chap import dataframe_to_chap_csv
 
@@ -25,11 +26,15 @@ def _simulate_monthly_disease_data(regions_df, location_id_field):
     regions_df = regions_df[['location_id']]
     regions_df = regions_df.drop_duplicates(subset=["location_id"])
 
+    #set population to random number for now
+    pop_df = regions_df.copy()
+    pop_df["population"] = np.random.randint(1000, 500000, size=len(pop_df))
+
     # create df for timeframe (hardcoded for now)
     time_df = pd.DataFrame({"time": pd.date_range("2020-01-01", periods=12*3, freq="MS")})
 
     # crossjoin regions with time
-    final = regions_df.merge(time_df, how='cross')
+    final = pop_df.merge(time_df, how='cross')
 
     # add random disease data
     from random import uniform
