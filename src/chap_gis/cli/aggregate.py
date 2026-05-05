@@ -130,12 +130,18 @@ def aggregate(
         "disease_cases": "disease",
         "population": "population",
     }
+
+    
+    start_date = pd.to_datetime(output['time'].min().values).strftime('%Y-%m')
+    end_date = pd.to_datetime(output['time'].max().values).strftime('%Y-%m')
+    logger.info(f'Start date: {start_date}, End date: {end_date}')
+
     # output chap-csv
     dataframe_to_chap_csv(
         output.to_dataframe().reset_index(),
         column_map=column_map,
         freq='monthly',
-        start=str(output['time'].min())[:7],  # these dont quite work yet, need to look up the expected format :P
-        end=str(output['time'].max())[:7],  # these dont quite work yet, need to look up the expected format :P
+        start=start_date,  # these dont quite work yet, need to look up the expected format :P
+        end=end_date,  # these dont quite work yet, need to look up the expected format :P
         output_path=out_path,
     )
