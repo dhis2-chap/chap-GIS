@@ -8,6 +8,8 @@ import numpy as np
 import xarray as xr
 from scipy import ndimage
 
+from .grid_check import same_grid
+
 HORIZONTAL_LAMBDA_M = 651.0
 VERTICAL_GAMMA_M = 22.5
 
@@ -145,6 +147,7 @@ def _exposure_np(
     return expo.astype(np.float32)
 
 
+@same_grid
 def exposure(
     breeding: xr.DataArray,
     elevation: xr.DataArray,
@@ -166,10 +169,6 @@ def exposure(
 
     All inputs must share CRS, dims, coords and shape.
     """
-    _assert_aligned(breeding, elevation)
-    if suitability is not None:
-        _assert_aligned(breeding, suitability)
-
     shape = breeding.shape
     delayed = _exposure_np(
         breeding.data,
@@ -197,12 +196,3 @@ def exposure(
         },
     )
     return out.rio.write_crs(breeding.rio.crs)
-
-
-def _assert_aligned(a: xr.DataArray, b: xr.DataArray) -> None:
-    if a.rio.crs != b.rio.crs:
-        raise ValueError(f"CRS mismatch: {a.rio.crs} vs {b.rio.crs}")
-    if a.dims != b.dims:
-        raise ValueError(f"dim mismatch: {a.dims} vs {b.dims}")
-    if a.shape != b.shape:
-        raise ValueError(f"shape mismatch: {a.shape} vs {b.shape}")

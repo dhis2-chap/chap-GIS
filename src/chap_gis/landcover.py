@@ -5,6 +5,8 @@ from __future__ import annotations
 import xarray as xr
 from dask_image.ndmorph import binary_dilation as _dask_binary_dilation
 
+from .grid_check import same_grid
+
 # WorldCover v200 class codes
 WETLAND_CODES = (90, 95)
 PERMANENT_WATER_CODE = 80
@@ -22,6 +24,7 @@ def wetland_mask(lc: xr.DataArray) -> xr.DataArray:
     return ((lc == WETLAND_CODES[0]) | (lc == WETLAND_CODES[1])).rename("wetland_mask")
 
 
+@same_grid
 def breeding_site_mask(
     lc: xr.DataArray,
     rice: xr.DataArray | None = None,
@@ -42,8 +45,6 @@ def breeding_site_mask(
 
     breeding = wet
     if rice is not None:
-        if rice.shape != lc.shape or rice.dims != lc.dims:
-            raise ValueError("rice mask must share dims/shape with lc")
         breeding = breeding | rice.astype(bool)
 
     if water_edge_buffer > 0:

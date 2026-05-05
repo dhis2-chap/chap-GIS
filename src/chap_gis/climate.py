@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import xarray as xr
 
+from .grid_check import same_grid
+
 DEFAULT_LAPSE_RATE = 6.5e-3  # K per metre
 
 
@@ -16,6 +18,7 @@ def annual_mean(tas: xr.DataArray, dim: str = "time") -> xr.DataArray:
     return out
 
 
+@same_grid
 def lapse_rate_downscale(
     coarse_tas: xr.DataArray,
     coarse_elev: xr.DataArray,
@@ -29,9 +32,6 @@ def lapse_rate_downscale(
     resampled onto the fine target grid before this call. The output is
     ``coarse_tas - lapse_rate * (fine_elev - coarse_elev)``.
     """
-    _assert_aligned(coarse_tas, coarse_elev)
-    _assert_aligned(coarse_tas, fine_elev)
-
     anomaly = fine_elev - coarse_elev
     out = coarse_tas - lapse_rate * anomaly
     out = out.where(fine_elev.notnull())
@@ -42,12 +42,3 @@ def lapse_rate_downscale(
     }
     out = out.rio.write_crs(coarse_tas.rio.crs)
     return out
-
-
-def _assert_aligned(a: xr.DataArray, b: xr.DataArray) -> None:
-    if a.rio.crs != b.rio.crs:
-        raise ValueError(f"CRS mismatch: {a.rio.crs} vs {b.rio.crs}")
-    if a.dims != b.dims:
-        raise ValueError(f"dim mismatch: {a.dims} vs {b.dims}")
-    if a.shape != b.shape:
-        raise ValueError(f"shape mismatch: {a.shape} vs {b.shape}")
