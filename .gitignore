@@ -19,3 +19,4 @@ wheels/
 # Data folders
 data/cache/
 data/outputs/
+data/inputs/

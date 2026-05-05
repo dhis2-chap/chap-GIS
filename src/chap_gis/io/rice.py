@@ -145,17 +145,17 @@ def download(
     if not country_code:
         raise ValueError("rice.download requires country_code")
     iso3 = country_code.upper()
-    if iso3 not in _ISO3_TO_ZENODO_PREFIX:
-        raise ValueError(
-            f"{iso3} is not in the Jiang et al. Africa rice dataset "
-            f"(Zenodo {ZENODO_RECORD}).\n{_README_INSTRUCTIONS}"
-        )
 
     save_path = _inputs_dir() / f"{iso3.lower()}_rice_fields.tif"
     if save_path.exists() and not overwrite:
         logger.info(f"Rice file already staged: {save_path}")
         return [save_path]
 
+    if iso3 not in _ISO3_TO_ZENODO_PREFIX:
+        raise ValueError(
+            f"{iso3} is not in the Jiang et al. Africa rice dataset "
+            f"(Zenodo {ZENODO_RECORD}).\n{_README_INSTRUCTIONS}"
+        )
     zenodo_prefix = _ISO3_TO_ZENODO_PREFIX[iso3]
     try:
         files = _zenodo_files_for(zenodo_prefix)
