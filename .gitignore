@@ -20,3 +20,6 @@ wheels/
 data/cache/
 data/outputs/
 data/inputs/
+
+# Benchmark scratch (notes/zarr_benchmark.py)
+notes/_bench/
