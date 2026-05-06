@@ -1,23 +1,25 @@
+import logging
+import gc
+from pathlib import Path
+
+import pandas as pd
 import xarray as xr
 import rioxarray
-import pandas as pd
-import logging
-from pathlib import Path
+import numpy as np
 import chap_gis as cgis
 from chap_gis.aggregate import aggregate_to_regions
-import numpy as np
+from dhis2eo.integrations.chap import dataframe_to_chap_csv
 
 logger = logging.getLogger(__name__)
 
-def wrapper(raster_dir: str, gdf: pd.DataFrame) -> xr.Dataset:
+def _wrapper(raster_dir: str, gdf: pd.DataFrame) -> xr.Dataset:
     """
     Aggregates all NetCDFs into a single xarray Dataset indexed by location_id.
-    Applies specific zonal statistics (sum vs mean) based on variable type.
+    Removes all temporal information to ensure it can broadcast across health data.
     """
     raster_path = Path(raster_dir)
     ds_list = []
 
-    # Map specific layers to 'sum', default everything else to 'mean'
     stats_map = {
         "population": "sum",
         "pop_exposure": "sum",
@@ -30,16 +32,19 @@ def wrapper(raster_dir: str, gdf: pd.DataFrame) -> xr.Dataset:
 
     for path in raster_path.glob('*.nc'):
         var_name = path.stem
-        stat_to_use = stats_map.get(var_name, "mean") # Fallback to mean
+        stat_to_use = stats_map.get(var_name, "mean")
         
         logger.info(f'Processing {var_name} using statistic: {stat_to_use}')
         
         raster = rioxarray.open_rasterio(path)
+        
+        raster = raster.squeeze(drop=True)
         if 'time' in raster.dims:
             raster = raster.mean(dim='time')
-        raster = raster.squeeze(drop=True)
+        
+        if 'time' in raster.coords:
+            raster = raster.drop_vars('time')
 
-        # Aggregate pixels using the specific statistic
         agg_obj = aggregate_to_regions(
             raster, 
             gdf, 
@@ -47,88 +52,121 @@ def wrapper(raster_dir: str, gdf: pd.DataFrame) -> xr.Dataset:
             id_field='location_id'
         )
         
-        # Deduplicate location_id if necessary
-        # Note: If stat was sum, we should sum duplicates; if mean, mean them.
-        if 'location_id' in agg_obj.coords:
-            agg_obj = (
-                agg_obj.groupby('location_id').sum() 
-                if stat_to_use == "sum" 
-                else agg_obj.groupby('location_id').mean()
-            )
-
-        # Rename to clean header
-        if isinstance(agg_obj, xr.Dataset):
-            mapping = {var: var_name for var in agg_obj.data_vars}
-            agg_ds = agg_obj.rename(mapping)
-        else:
+        if isinstance(agg_obj, xr.DataArray):
             agg_obj.name = var_name
             agg_ds = agg_obj.to_dataset()
+        else:
+            mapping = {var: var_name for var in agg_obj.data_vars}
+            agg_ds = agg_obj.rename(mapping)
             
         ds_list.append(agg_ds)
 
+    if not ds_list:
+        raise FileNotFoundError(f"No .nc files found in {raster_dir}")
+
     return xr.merge(ds_list)
 
-def _simulate_monthly_disease_data(regions_df, location_id_field):
-    # set location id field
-    regions_df['location_id'] = regions_df[location_id_field]
-    regions_df = regions_df[['location_id']]
-    regions_df = regions_df.drop_duplicates(subset=["location_id"])
+def _simulate_monthly_disease_data(regions_df: pd.DataFrame, location_id_field: str) -> pd.DataFrame:
+    """
+    Generates dummy disease data for the given regions.
+    """
+    df = regions_df[[location_id_field]].copy()
+    df = df.rename(columns={location_id_field: 'location_id'})
+    df = df.drop_duplicates(subset=["location_id"])
 
-    #set population to random number for now
-    pop_df = regions_df.copy()
-    pop_df["population"] = np.random.randint(1000, 500000, size=len(pop_df))
+    # Create 3 years of monthly timestamps
+    time_df = pd.DataFrame({"time": pd.date_range("2020-01-01", periods=36, freq="MS")})
 
-    # create df for timeframe (hardcoded for now)
-    time_df = pd.DataFrame({"time": pd.date_range("2020-01-01", periods=12*3, freq="MS")})
-
-    # crossjoin regions with time
-    final = pop_df.merge(time_df, how='cross')
-
-    # add random disease data
-    from random import uniform
-    final['disease'] = [uniform(0, 30) for _ in range(len(final))]
+    # Cross join to create (location x time) grid
+    final = df.merge(time_df, how='cross')
+    final['disease'] = np.random.uniform(0, 30, size=len(final))
 
     return final
 
 def merge(
-    input_csv: str,
     raster_dir: str,
     country: str,
     level: int,
+    input_csv: str = None, 
     out_path: Path = Path("data/outputs/augmented_health.csv"),
 ) -> None:
     """
     Converts health CSV to xarray, merges with static environmental data, 
-    and exports the result back to a flattened CSV.
+    and exports the result back to a flattened CHAP-compatible CSV.
     """
-    # 1. Load health data and pivot to xarray
-    health_df = pd.read_csv(input_csv)
-    health_xr = health_df.set_index(['location', 'time_period']).to_xarray()
-    
-    # 2. Load geographic boundaries
+    # 1. Load Admin Boundaries
+    logger.info(f'Loading boundaries for {country}-ADM{level}')
     gdf = cgis.io.boundaries.load(country, level=level)
     
-    # Map boundary names to 'location_id' for coordinate alignment
+    # Standardize boundary ID to 'location_id' (forced to string for alignment)
     if 'shapeName' in gdf.columns:
-        gdf['location_id'] = gdf['shapeName']
+        gdf['location_id'] = gdf['shapeName'].astype(str)
     elif 'shapeID' in gdf.columns:
-        gdf['location_id'] = gdf['shapeID']
+        gdf['location_id'] = gdf['shapeID'].astype(str)
     else:
         gdf['location_id'] = gdf.index.astype(str)
 
-    # 3. Get aggregated environmental data
-    env_ds = wrapper(raster_dir, gdf)
+    # 2. Load/Generate Health Data
+    if input_csv and Path(input_csv).exists():
+        logger.info(f'Loading disease data from {input_csv}')
+        health_df = pd.read_csv(input_csv)
+        
+        # Standardize columns for merging logic
+        time_col = "time_period" if "time_period" in health_df.columns else "time"
+        loc_col = "location" if "location" in health_df.columns else "location_id"
+        disease_col = "disease_cases" if "disease_cases" in health_df.columns else "disease"
+        
+        health_df = health_df.rename(columns={
+            time_col: "time",
+            loc_col: "location_id",
+            disease_col: "disease"
+        })
+        health_df["time"] = pd.to_datetime(health_df["time"])
+    else:
+        logger.info('Using simulated disease data...')
+        health_df = _simulate_monthly_disease_data(gdf, 'location_id')
 
-    # 4. Align coordinates and Merge
-    # Rename 'location_id' to match 'location' dimension in health data
-    env_ds = env_ds.rename({'location_id': 'location'})
+    # Force string type on join key to avoid DType conflicts
+    health_df['location_id'] = health_df['location_id'].astype(str)
+    health_xr = health_df.set_index(['location_id', 'time']).to_xarray()
+
+    # 3. Aggregate Environmental Data
+    env_ds = _wrapper(raster_dir, gdf)
     
-    # xarray.merge handles the broadcasting of static data across time automatically
-    final_ds = xr.merge([health_xr, env_ds])
+    # Ensure env_ds uses string coordinate and has NO time dimension
+    if 'location_id' in env_ds.coords:
+        env_ds.coords['location_id'] = env_ds.coords['location_id'].astype(str)
+    
+    # Final safety check to remove accidental time coordinates from static data
+    if 'time' in env_ds.coords or 'time' in env_ds.dims:
+        env_ds = env_ds.drop_vars('time', errors='ignore').squeeze(drop=True)
+
+    # 4. Merge
+    logger.info("Merging datasets...")
+    # join='left' preserves the time index from health_xr and broadcasts env_ds across it
+    final_ds = xr.merge([health_xr, env_ds], join='left')
 
     # 5. Flatten and Export
     final_df = final_ds.to_dataframe().reset_index()
     
+    column_map = {
+        "time_period": "time",
+        "location": "location_id",
+        "disease_cases": "disease",
+        "population": "population",
+    }
+
+    if "population" not in final_df.columns:
+        column_map.pop("population")
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    final_df.to_csv(out_path, index=False)
-    logger.info(f"Augmented CSV created at {out_path}")
+    logger.info(f"Writing validated CHAP CSV to {out_path}")
+
+    dataframe_to_chap_csv(
+        df=final_df,
+        column_map=column_map,
+        freq="monthly",
+        output_path=str(out_path),
+    )
+    
+    logger.info("Process successful.")
