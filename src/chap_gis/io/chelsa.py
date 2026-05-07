@@ -101,7 +101,8 @@ def load(
         country_code=country_code,
     )
 
-    ds = xr.open_mfdataset(files)
+    ds = xr.open_mfdataset(sorted(files), combine="nested",concat_dim="time",join="override",coords="minimal",compat="override")
+                        
     ds[_VARIABLE] -= 273.15
     da = ds[_VARIABLE]
 
