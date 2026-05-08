@@ -73,6 +73,8 @@ def _aggregate_population_by_year(pop_da: xr.DataArray, gdf: GeoDataFrame) -> xr
     # We rename it to 'population' to match health data expectations.
     if "sum" in agg_ds.data_vars:
         agg_ds = agg_ds.rename({"sum": "population"})
+    elif "values" in agg_ds.data_vars:
+        agg_ds = agg_ds.rename({"values": "population"})
 
     # 5. Clean up Metadata
     # Remove any residual 'band' coordinates if they exist
@@ -119,6 +121,8 @@ def _aggregate_temperature_by_month(tas_da: xr.DataArray, gdf: GeoDataFrame) -> 
     # 4. Standardize Variable Names
     if "mean" in agg_ds.data_vars:
         agg_ds = agg_ds.rename({"mean": "tas"})
+    elif "values" in agg_ds.data_vars:
+        agg_ds = agg_ds.rename({"values": "tas"})
 
     # 5. Clean up Metadata
     if 'band' in agg_ds.coords:
@@ -204,8 +208,8 @@ def _calculate_monthly_exposure_from_vars(
 def dynamic_periods (
     country: str,
     level: int = 5,
-    input_csv: str = 'data/inputs/chap_data_levl5.csv',
-    out_path: Path = Path("data/outputs/augmented-pop-exposure_dynamic_health.csv"),
+    input_csv: str = 'data/inputs/disease-data.csv',
+    out_path: Path = Path("data/outputs/dynamic_health.csv"),
 )-> None:
     """
     Placeholder for dynamic data processing function.
@@ -295,6 +299,13 @@ def dynamic_periods (
     tas_agg_ds = _aggregate_temperature_by_month(tasMonthly, gdf)
     logger.info("Temperature aggregation complete.")
 
+
+    #Validating the crs before exposure pipeline
+    if pop_xr.rio.crs is None:
+        pop_xr.rio.write_crs("EPSG:4326", inplace=True)
+    if tasMonthly.rio.crs is None:
+        tasMonthly.rio.write_crs("EPSG:4326", inplace=True)
+
     # Calculate exposure using the already loaded and aggregated population and temperature data
     exposure_ds = _calculate_monthly_exposure_from_vars(
         aoi=gdf,
@@ -302,15 +313,42 @@ def dynamic_periods (
         pop_native=pop_xr,
         tas_native=tasMonthly,
         country_code=country,
-        params=MalariaExposureParams(resolution_m=30.0)
+        params=MalariaExposureParams(resolution_m=100.0)
     )
 
-    exposure_df = exposure_ds.to_dataframe().reset_index()
+    health_xr = health_xr.assign_coords(time=health_xr.time.dt.strftime('%Y-%m').values)
+    pop_agg_ds = pop_agg_ds.assign_coords(time=pop_agg_ds.time.dt.strftime('%Y-%m').values)
 
-    # 2. Define the output path
-    exposure_csv_path = out_path
+    logger.info("Merging all datasets (Health, Population, Temperature, Exposure)...")
 
-    # 3. Save to CSV
-    exposure_df.to_csv(exposure_csv_path, index=False)
+    # 2. Combine into a single Xarray Dataset
+    # xarray.merge will align automatically on 'location_id' and 'time'
+    final_ds = xr.merge([
+        health_xr,
+        pop_agg_ds,
+        tas_agg_ds,
+        exposure_ds
+    ])
 
-    logger.info(f"Monthly exposure data saved to {exposure_csv_path}")
+    # 3. Convert to DataFrame for CSV export
+    # .reset_index() turns coordinates (location_id, time) into regular columns
+    final_df = final_ds.to_dataframe().reset_index()
+
+    # 4. Optional: Add geographic metadata (lat/lon centers) if needed
+    # Some models prefer having the centroid of the regions
+    centroids = gdf.copy()
+    centroids['geometry'] = centroids.geometry.centroid
+    centroids['latitude'] = centroids.geometry.y
+    centroids['longitude'] = centroids.geometry.x
+    
+    final_df = final_df.merge(
+        centroids[['location_id', 'latitude', 'longitude']], 
+        on='location_id', 
+        how='left'
+    )
+
+    # 5. Save the master dataset
+    final_df.to_csv(out_path, index=False)
+
+    logger.info(f"Full augmented dataset saved to {out_path}")
+    logger.info(f"Columns: {list(final_df.columns)}")
