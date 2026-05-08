@@ -152,33 +152,61 @@ def get_health_data(input_csv: str, regions_df: GeoDataFrame) -> xr.Dataset:
     return df.set_index(['location_id', 'time']).to_xarray()
 
 
-def get_environmental_data(country: str, health_xr: xr.Dataset, gdf: GeoDataFrame):
-    """Handles loading and aggregation of Population and Temperature."""
+def get_environmental_data(
+    country: str, 
+    health_xr: xr.Dataset, 
+    gdf: GeoDataFrame, 
+    inter: bool
+) -> tuple[xr.DataArray, xr.Dataset, xr.DataArray, xr.Dataset]:
+    """
+    Handles loading and aggregation of Population and Temperature.
+    If inter is False, monthly population is filled with the constant yearly value.
+    """
     years = np.unique(health_xr.time.dt.year.values).tolist()
     
-    # 1. Population
+    # 1. Population Loading
     logger.info(f"Processing population for years: {years}")
     pop_xr = cgis.io.worldpop.load(country_code=country, start=min(years), end=max(years))
     pop_xr.rio.write_crs("EPSG:4326", inplace=True)
     
-    # Interpolate to match health data monthly steps
-    pop_xr = pop_xr.interp(time=health_xr.time.values, method="linear", kwargs={"fill_value": "extrapolate"})
+    # 2. Temporal Alignment for Population
+    if inter:
+        logger.info("Interpolating population data (linear) to monthly time steps...")
+        pop_xr = pop_xr.interp(
+            time=health_xr.time.values, 
+            method="linear", 
+            kwargs={"fill_value": "extrapolate"}
+        )
+    else:
+        logger.info("Filling monthly population with constant yearly values (ffill)...")
+        # .reindex maps the existing annual data to the monthly steps of health_xr
+        # 'ffill' ensures Feb-Dec take the value of the Jan population raster
+        pop_xr = pop_xr.reindex(time=health_xr.time.values, method="ffill")
+        
+        # Optional: Handle edge cases where health data might start before the first pop raster
+        if pop_xr.isnull().any():
+            pop_xr = pop_xr.bfill(dim="time")
+
+    # Aggregate to regions
     pop_agg = aggregate_population_by_year(pop_xr.compute(), gdf)
 
-    # 2. Temperature
+    # 3. Temperature Loading & Aggregation
     logger.info("Processing monthly temperature...")
     tas_monthly = cgis.io.chelsa.load(
-        gdf, start=f"{min(years)}-01", end=f"{max(years)}-12", country_code=country
+        gdf, 
+        start=f"{min(years)}-01", 
+        end=f"{max(years)}-12", 
+        country_code=country
     )
     tas_monthly.rio.write_crs("EPSG:4326", inplace=True)
     tas_agg = aggregate_temperature_by_month(tas_monthly, gdf)
 
     return pop_xr, pop_agg, tas_monthly, tas_agg
 
-
 def dynamic_periods(
     country: str,
     level: int = 5,
+    inter : bool = True,
     input_csv: str = 'data/inputs/disease-data.csv',
     out_path: Path = Path("data/outputs/dynamic_health.csv"),
 ) -> None:
@@ -188,7 +216,7 @@ def dynamic_periods(
     health_xr = get_health_data(input_csv, gdf)
 
     # 2. Get Environmental Rasters and Aggregates
-    pop_native, pop_agg, tas_native, tas_agg = get_environmental_data(country, health_xr, gdf)
+    pop_native, pop_agg, tas_native, tas_agg = get_environmental_data(country, health_xr, gdf, inter=inter)
 
     # 3. Calculate Exposure
     exposure_ds = _calculate_monthly_exposure_from_vars(
