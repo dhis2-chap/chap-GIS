@@ -6,6 +6,11 @@ from exactextract import Writer
 from exactextract.feature import JSONFeature
 import exactextract
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # custom xarray output writer class
 # TODO: remove after we get it merged into exactextract
 # see: https://github.com/isciences/exactextract/pull/192
