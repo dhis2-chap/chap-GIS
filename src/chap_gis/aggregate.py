@@ -2,6 +2,7 @@
 import xarray as xr
 import geopandas as gpd
 
+import pandas as pd
 from exactextract import Writer
 from exactextract.feature import JSONFeature
 import exactextract
@@ -225,13 +226,13 @@ def aggregate_temperature_by_month(tas_da: xr.DataArray, gdf: gpd.GeoDataFrame) 
         id_field='location_id'
     )
 
-    # 3. Restore and Format Coordinate Labels
-    # We convert the datetime objects to 'YYYY-MM' strings
-    formatted_time = tas_da.time.dt.strftime('%Y-%m').values
+    if isinstance(agg_ds, xr.DataArray):
+        agg_ds = agg_ds.to_dataset(name="tas")
+
     
     agg_ds = agg_ds.assign_coords({
-        "location_id": gdf['location_id'].values,
-        "time": formatted_time
+        "location_id": gdf["location_id"].values,
+        "time": pd.to_datetime(tas_da.time.values)
     })
 
     # 4. Standardize Variable Names
