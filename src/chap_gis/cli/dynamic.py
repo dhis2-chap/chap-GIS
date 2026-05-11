@@ -119,9 +119,10 @@ def prepare_boundaries(country: str, level: int) -> GeoDataFrame:
     
     return gdf[gdf.geometry.notnull() & ~gdf.geometry.is_empty]
 
-def get_health_data(input_csv: Optional[str], regions_df: GeoDataFrame) -> xr.Dataset:
+def get_health_data(input_csv: str, regions_df: GeoDataFrame) -> xr.Dataset:
     """Loads health data and ensures variable naming and datetime types."""
     if input_csv and Path(input_csv).exists():
+        logger.info(f"Loading health data from {input_csv}")
         df = pd.read_csv(input_csv)
         
         # Mapping to satisfy: test_get_health_data_csv_renames_chap_columns
@@ -199,7 +200,7 @@ def _run_core_logic(gdf, health_xr, pop_native, tas_native, landcover_native, el
         ds_pixel = run_exposure_pipeline(
             aoi=gdf, landcover_native=landcover_native, elev_native=elev_native,
             tas_monthly=tas_year, population_native=pop_year, rice_native=rice_native, params=params,
-        )
+        ).compute()
 
         logger.info("Aggregating exposure results to regions")
         expo_agg = aggregate_to_regions(ds_pixel["pop_exposure"], gdf, statistic="sum", id_field='location_id')
@@ -245,7 +246,7 @@ def dynamic_periods(
     country: str,
     level: int = 5,
     inter: bool = True,
-    input_csv: Optional[str] = None,
+    input_csv: str = "data/inputs/disease_data.csv",
     out_path: Path = Path("data/outputs/health_pipeline_output.csv"),
 ) -> None:
     logger.info(f"Running dynamic_periods for {country} at level {level} with inter={inter}")
