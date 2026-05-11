@@ -224,7 +224,19 @@ def _run_core_logic(gdf, health_xr, pop_native, tas_native, landcover_native, el
             
         yearly_results.append(expo_agg)
 
-    return xr.concat(yearly_results, dim="time")
+    exposure_ds = xr.concat(yearly_results, dim="time")
+
+    #safe gaurd against unnamed variable showing up as 'values'
+    if isinstance(exposure_ds, xr.DataArray):
+        exposure_ds = exposure_ds.to_dataset(name="pop_exposure")
+
+    if "sum" in exposure_ds.data_vars:
+        exposure_ds = exposure_ds.rename({"sum": "pop_exposure"})
+
+    if "values" in exposure_ds.data_vars:
+        exposure_ds = exposure_ds.rename({"values": "pop_exposure"})
+
+    return exposure_ds
 
 def dynamic_periods(
     country: str,
