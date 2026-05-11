@@ -1,3 +1,4 @@
+import gc
 from pathlib import Path
 from geopandas import GeoDataFrame
 import pandas as pd
@@ -103,7 +104,6 @@ def _calculate_monthly_exposure_from_vars(
 
     return expo_agg_ds
 
-
 def prepare_boundaries(country: str, level: int) -> GeoDataFrame:
     """Loads, cleans, and standardizes administrative boundaries."""
     logger.info(f'Loading boundaries for {country}-ADM{level}')
@@ -130,7 +130,6 @@ def prepare_boundaries(country: str, level: int) -> GeoDataFrame:
     gdf = gdf[gdf.geometry.notnull() & ~gdf.geometry.is_empty]
     return gdf.to_crs("EPSG:4326")
 
-
 def get_health_data(input_csv: str, regions_df: GeoDataFrame) -> xr.Dataset:
     """Loads health data from CSV or simulates it if missing."""
     if input_csv and Path(input_csv).exists():
@@ -150,7 +149,6 @@ def get_health_data(input_csv: str, regions_df: GeoDataFrame) -> xr.Dataset:
 
     df['location_id'] = df['location_id'].astype(str)
     return df.set_index(['location_id', 'time']).to_xarray()
-
 
 def get_environmental_data(
     country: str, 
@@ -208,7 +206,7 @@ def dynamic_periods(
     level: int = 5,
     inter : bool = True,
     input_csv: str = 'data/inputs/disease-data.csv',
-    out_path: Path = Path("data/outputs/dynamic_health.csv"),
+    out_path: Path = Path("data/outputs/yr-over-yr-health.csv"),
 ) -> None:
     """Orchestrates the full data pipeline."""
     # 1. Setup Base Data
@@ -218,32 +216,46 @@ def dynamic_periods(
     # 2. Get Environmental Rasters and Aggregates
     pop_native, pop_agg, tas_native, tas_agg = get_environmental_data(country, health_xr, gdf, inter=inter)
 
-    # 3. Calculate Exposure
-    exposure_ds = _calculate_monthly_exposure_from_vars(
-        aoi=gdf, gdf=gdf, pop_native=pop_native, 
-        tas_native=tas_native, country_code=country,
-        params=MalariaExposureParams(resolution_m=100.0)
-    )
+    
+    years = sorted(np.unique(health_xr.time.dt.year.values).tolist())
+    yearly_exposure_list = []
 
-    # 4. Alignment and Merging
-    logger.info("Merging all datasets...")
-    # Standardize time strings for a clean merge
-    time_coords = health_xr.time.dt.strftime('%Y-%m').values
-    health_xr = health_xr.assign_coords(time=time_coords)
-    pop_agg = pop_agg.assign_coords(time=time_coords)
+    for year in years:
+        logger.info(f"Processing year: {year}")
+        # Select the relevant time slice for the current year
+        health_year = health_xr.sel(time=str(year))
+        pop_year = pop_native.sel(time=str(year))
+        tas_year = tas_native.sel(time=str(year))
 
-    final_ds = xr.merge([health_xr, pop_agg, tas_agg, exposure_ds])
+        # # Run the exposure pipeline for this year
+        exposure_ds = _calculate_monthly_exposure_from_vars(
+            aoi=gdf, gdf=gdf, pop_native=pop_year, 
+            tas_native=tas_year, country_code=country,
+            params=MalariaExposureParams(resolution_m=30.0)
+        )
+        yearly_exposure_list.append(exposure_ds)
+
+        gc.collect()  # Force garbage collection to free memory after each year
+    
+    logger.info("Merging all years into final exposure dataset...")
+    exposure_ds = xr.concat(yearly_exposure_list, dim="time")
+
+    logger.info(f"merging exposure all datasets and saving to {out_path}...")
+    # Merge with health data
+    final_ds = xr.merge([
+        health_xr, 
+        tas_agg, 
+        pop_agg, 
+        exposure_ds
+    ], join="inner")
+
+    #export to CSV
+    logger.info(f"Exporting final dataset to CSV at {out_path}...")
     final_df = final_ds.to_dataframe().reset_index()
 
-    # 5. Add Centroids and Save
-    centroids = gdf.copy()
-    centroids['geometry'] = centroids.geometry.representative_point()
-    centroids['latitude'], centroids['longitude'] = centroids.geometry.y, centroids.geometry.x
-    
-    final_df = final_df.merge(
-        centroids[['location_id', 'latitude', 'longitude']], 
-        on='location_id', how='left'
-    )
+    final_df['time'] = pd.to_datetime(final_df['time']).dt.strftime('%Y-%m')
 
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     final_df.to_csv(out_path, index=False)
-    logger.info(f"Pipeline complete. Dataset saved to {out_path}")
+
+    logger.info("Pipeline complete!")
