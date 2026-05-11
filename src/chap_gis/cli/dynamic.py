@@ -191,14 +191,17 @@ def _run_core_logic(gdf, health_xr, pop_native, tas_native, landcover_native, el
 
     for year in years:
         # Selection using strings is fine, it maintains the underlying datetime64 index
+        logger.info(f"Processing year {year}")
         pop_year = pop_native.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
         tas_year = tas_native.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
 
+        logger.info("Running exposure pipeline for the year")
         ds_pixel = run_exposure_pipeline(
             aoi=gdf, landcover_native=landcover_native, elev_native=elev_native,
             tas_monthly=tas_year, population_native=pop_year, rice_native=rice_native, params=params,
         )
 
+        logger.info("Aggregating exposure results to regions")
         expo_agg = aggregate_to_regions(ds_pixel["pop_exposure"], gdf, statistic="sum", id_field='location_id')
 
         if isinstance(expo_agg, xr.DataArray):
@@ -242,16 +245,18 @@ def dynamic_periods(
     country: str,
     level: int = 5,
     inter: bool = True,
-    resolution_m: float = 1000.0,
     input_csv: Optional[str] = None,
     out_path: Path = Path("data/outputs/health_pipeline_output.csv"),
 ) -> None:
+    logger.info(f"Running dynamic_periods for {country} at level {level} with inter={inter}")
     gdf = prepare_boundaries(country, level)
     health_xr = get_health_data(input_csv, gdf)
     
+    logger.info(f"Loading environmental data for years")
     pop_native, pop_agg, tas_native, tas_agg = get_environmental_data(country, health_xr, gdf, inter)
 
-    params = MalariaExposureParams(resolution_m=resolution_m)
+    params = MalariaExposureParams(resolution_m=30.0)
+    logger.info("loading static layers (worldcover, elevation, rice)")
     worldcover_year = max(2020, min(int(health_xr.time.dt.year.max()), 2021))
     buffered_aoi = cgis.aoi.buffered(gdf, distance=params.aoi_buffer_deg)
     
@@ -259,14 +264,16 @@ def dynamic_periods(
     elev_native = cgis.io.elevation.load(buffered_aoi, country_code=country)
     rice_native = cgis.io.rice.load(country_code=country)
 
+    logger.info("Running core exposure logic")
     exposure_ds = _run_core_logic(gdf, health_xr, pop_native, tas_native, landcover_native, elev_native, rice_native, params)
 
     # All components MUST have datetime64 'time' for this merge to succeed
+    logger.info("Merging datasets on location_id and time")
     final_ds = xr.merge([health_xr, tas_agg, pop_agg, exposure_ds], join="inner")
 
     # Convert to dataframe and reset index to turn coordinates into columns
     final_df = final_ds.to_dataframe().reset_index()
-    
+    logger.info("Converting merged dataset to DataFrame")
     # Fix 'values' column issue: If any DataArray wasn't named, it shows up as 'values'
     if 'values' in final_df.columns:
         # Attempt to recover name or drop it if it's redundant
@@ -278,3 +285,4 @@ def dynamic_periods(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     final_df.to_csv(out_path, index=False)
+    logger.info(f"Finished writing output to {out_path}")
