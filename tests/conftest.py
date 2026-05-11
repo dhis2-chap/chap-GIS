@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import numpy as np
 import pytest
 import rioxarray  # noqa: F401
@@ -14,20 +13,6 @@ from chap_gis.io import boundaries
 
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR / "data"
-
-
-def _ensure_synthetic_rasters() -> None:
-    """Build gitignored test rasters on demand using helpers from data/_build.py."""
-    rice_path = DATA_DIR / "xxx_jiang_rice_fields.tif"
-    if rice_path.exists():
-        return
-    spec = importlib.util.spec_from_file_location("_build", DATA_DIR / "_build.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    mod._rice_raster().rio.to_raster(rice_path)
-
-
-_ensure_synthetic_rasters()
 
 
 def pytest_addoption(parser):
@@ -92,6 +77,77 @@ def xxx_adm0():
 def xxx_adm2():
     import geopandas as gpd
     return gpd.read_file(DATA_DIR / "geoBoundaries-XXX-ADM2.geojson")
+
+
+@pytest.fixture
+def xxx_disease_csv():
+    """Path to the committed CSV fixture for XXX (CHAP-style columns, 36 months)."""
+    return DATA_DIR / "xxx_disease.csv"
+
+
+def _xy_8():
+    xs = (np.arange(8) + 0.5) / 8.0
+    ys = (np.arange(8)[::-1] + 0.5) / 8.0
+    return xs, ys
+
+
+@pytest.fixture
+def xxx_pop_yearly():
+    """Synthetic WorldPop-style yearly population over the XXX AOI (2017–2019)."""
+    times = np.array([np.datetime64(f"{y}-01-01") for y in (2017, 2018, 2019)])
+    xs, ys = _xy_8()
+    data = np.ones((len(times), 8, 8), dtype="float32") * 100.0
+    for i in range(len(times)):
+        data[i] *= 1.0 + 0.1 * i  # vary by year so interp/ffill are observable
+    da = xr.DataArray(
+        data,
+        dims=("time", "y", "x"),
+        coords={"time": times, "y": ys, "x": xs},
+        name="population",
+    )
+    return da.rio.write_crs("EPSG:4326")
+
+
+@pytest.fixture
+def xxx_tas_monthly():
+    """Synthetic CHELSA-style monthly temperature over the XXX AOI (2017–2019)."""
+    import pandas as pd
+    times = pd.date_range("2017-01-01", periods=36, freq="MS").values
+    xs, ys = _xy_8()
+    data = np.full((36, 8, 8), 25.0, dtype="float32")
+    da = xr.DataArray(
+        data,
+        dims=("time", "y", "x"),
+        coords={"time": times, "y": ys, "x": xs},
+        name="tas",
+    )
+    return da.rio.write_crs("EPSG:4326")
+
+
+@pytest.fixture
+def xxx_elev_native():
+    xs, ys = _xy_8()
+    data = np.full((8, 8), 1500.0, dtype="float32")
+    return xr.DataArray(
+        data, dims=("y", "x"), coords={"y": ys, "x": xs}
+    ).rio.write_crs("EPSG:4326")
+
+
+@pytest.fixture
+def xxx_landcover_native():
+    xs, ys = _xy_8()
+    data = np.full((8, 8), 10, dtype="uint8")  # trees
+    data[3:5, 3:5] = 80  # water
+    return xr.DataArray(
+        data, dims=("y", "x"), coords={"y": ys, "x": xs}
+    ).rio.write_crs("EPSG:4326")
+
+
+@pytest.fixture
+def xxx_rice_native():
+    """Reuse the committed synthetic rice raster as a DataArray."""
+    import rioxarray
+    return rioxarray.open_rasterio(DATA_DIR / "xxx_jiang_rice_fields.tif")
 
 
 @pytest.fixture
