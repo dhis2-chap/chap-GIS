@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 
 from cyclopts import App
-from xarray import merge
 
 from .analyze import analyze
 from .visualize import visualize

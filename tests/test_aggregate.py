@@ -2,7 +2,6 @@ import logging
 
 import pytest
 import rioxarray
-import xarray as xr
 
 from chap_gis.aggregate import aggregate_to_regions
 

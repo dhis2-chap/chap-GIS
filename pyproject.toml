@@ -38,6 +38,7 @@ chap-gis = "chap_gis.cli:app"
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.15.12",
 ]
 
 [build-system]
@@ -48,3 +49,6 @@ build-backend = "uv_build"
 markers = [
     "integration: test requires network access or external credentials (opt-in via --run-integration)",
 ]
+
+[tool.ruff]
+extend-exclude = [".claude"]

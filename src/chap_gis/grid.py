@@ -7,7 +7,6 @@ import numpy as np
 import odc.geo.xr  # noqa: F401  registers the .odc accessor
 import xarray as xr
 from affine import Affine
-from rasterio.enums import Resampling
 
 
 def build_grid(

@@ -1,6 +1,5 @@
 import logging
 from pathlib import Path
-from typing import Optional
 
 import chap_gis as cgis
 import numpy as np
@@ -162,7 +161,7 @@ def dynamic_periods(
     gdf = prepare_boundaries(country, level)
     health_xr = get_health_data(input_csv, gdf)
     
-    logger.info(f"Loading environmental data for years")
+    logger.info("Loading environmental data for years")
     pop_native, pop_agg, tas_native, tas_agg = get_environmental_data(country, health_xr, gdf, inter)
 
     params = MalariaExposureParams(resolution_m=30.0)
