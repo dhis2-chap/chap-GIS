@@ -119,7 +119,7 @@ def aggregate(
 
     # prepare and output to chap csv
     # example of preparing data for chap, see: https://climate-tools.dhis2.org/guides/import-chap/harmonize-to-chap/
-    logger.info(f'Merged dataset of all aggregates:')
+    logger.info('Merged dataset of all aggregates:')
     logger.info(output)
     out_path = out_dir / 'chap-output.csv'
     # map columns to chap names

@@ -1,4 +1,3 @@
-import numpy as np
 
 from chap_gis.landcover import breeding_site_mask, land_mask, water_mask
 

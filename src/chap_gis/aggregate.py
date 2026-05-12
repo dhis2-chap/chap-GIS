@@ -53,7 +53,7 @@ class XArrayWriter(Writer):
 
     def write(self, feature):
         f = JSONFeature()
-        feature.copy_to(f);
+        feature.copy_to(f)
 
         props = f.feature["properties"]
         row = {col: props.get(col) for col in self._id_cols}
