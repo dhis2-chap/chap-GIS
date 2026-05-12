@@ -1,7 +1,7 @@
 """One-shot generator for synthetic test fixtures under tests/data/.
 
-Run manually after editing; the produced files are committed and pytest does not
-invoke this script. Re-run to regenerate.
+All produced files are committed to the repo; pytest does not invoke this
+script. Re-run manually after editing to regenerate:
 
     uv run python tests/data/_build.py
 
@@ -16,6 +16,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import rioxarray  # noqa: F401  registers the .rio accessor
 import xarray as xr
 from shapely.geometry import Polygon
@@ -59,6 +60,26 @@ def _adm2() -> gpd.GeoDataFrame:
     )
 
 
+def _disease_csv() -> pd.DataFrame:
+    """36-month dummy disease data for the XXX ADM2 quadrants.
+
+    Uses CHAP-style column names (``time_period``, ``location``, ``disease_cases``)
+    so tests exercise the column-standardization branch of ``get_health_data``.
+    """
+    times = pd.date_range("2017-01-01", periods=36, freq="MS")
+    locations = ["SW", "SE", "NW", "NE"]
+    rng = np.random.default_rng(seed=0)
+    rows = []
+    for loc in locations:
+        for t in times:
+            rows.append({
+                "time_period": t.strftime("%Y-%m"),
+                "location": loc,
+                "disease_cases": float(rng.integers(0, 50)),
+            })
+    return pd.DataFrame(rows)
+
+
 def _rice_raster() -> xr.DataArray:
     """Synthetic 16x16 rice raster aligned with the XXX unit-square AOI."""
     data = np.zeros((1, 16, 16), dtype="uint8")
@@ -81,6 +102,10 @@ def main() -> None:
     rice_path = HERE / "xxx_jiang_rice_fields.tif"
     _rice_raster().rio.to_raster(rice_path)
     print(f"wrote {rice_path} ({rice_path.stat().st_size} bytes)")
+
+    csv_path = HERE / "xxx_disease.csv"
+    _disease_csv().to_csv(csv_path, index=False)
+    print(f"wrote {csv_path} ({csv_path.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

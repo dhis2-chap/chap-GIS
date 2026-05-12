@@ -1,0 +1,264 @@
+"""Tests for ``chap_gis.cli.dynamic`` — the multi-month / multi-year pipeline.
+
+These tests deliberately target the correctness concerns documented in
+``src/chap_gis/cli/dynamic.py`` (see module docstring there). Several of them
+are expected to **fail on the current branch** and should turn green when the
+listed bugs are fixed.
+
+The orchestration is hard to test today because every external loader is
+called from inside the function body and ``MalariaExposureParams`` is
+constructed inline. Until the refactor described in ``dynamic.py`` lands,
+these tests rely on heavy monkeypatching — once the refactor is done, the
+end-to-end test can call the pure inner function directly with the same
+fixtures and drop most of the patches.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+import xarray as xr
+
+import chap_gis as cgis
+from chap_gis.aggregate import (
+    aggregate_population_by_year,
+    aggregate_temperature_by_month,
+)
+from chap_gis.cli import dynamic as cli_dynamic
+from chap_gis.cli.dynamic import (
+    _simulate_monthly_disease_data,
+    dynamic_periods,
+    get_health_data,
+    prepare_boundaries,
+)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — aggregators
+# ---------------------------------------------------------------------------
+
+
+def _gdf_with_location_id(xxx_adm2):
+    """XXX ADM2 fixture, plus a ``location_id`` column matching shapeName."""
+    gdf = xxx_adm2.copy()
+    gdf["location_id"] = gdf["shapeName"].astype(str)
+    return gdf
+
+
+def test_aggregate_population_returns_expected_shape(xxx_adm2, xxx_pop_yearly):
+    gdf = _gdf_with_location_id(xxx_adm2)
+    agg = aggregate_population_by_year(xxx_pop_yearly, gdf)
+
+    assert set(agg.dims) == {"location_id", "time"}
+    assert agg.sizes["location_id"] == len(gdf)
+    assert agg.sizes["time"] == xxx_pop_yearly.sizes["time"]
+    assert "population" in agg.data_vars
+    assert set(agg.location_id.values) == set(gdf["location_id"].values)
+    # population uses the raster's native time dtype — should be datetime64
+    assert np.issubdtype(agg.time.dtype, np.datetime64)
+
+
+def test_aggregate_temperature_time_is_datetime(xxx_adm2, xxx_tas_monthly):
+    """Regression: the final inner merge in ``dynamic_periods`` joins on time.
+
+    ``health_xr`` and ``pop_agg`` carry ``datetime64`` time. This aggregator
+    currently casts time to ``YYYY-MM`` strings, which makes the inner join
+    drop every row (the e2e test below pins the same bug from the other end).
+    """
+    gdf = _gdf_with_location_id(xxx_adm2)
+    agg = aggregate_temperature_by_month(xxx_tas_monthly, gdf)
+
+    assert "tas" in agg.data_vars
+    assert np.issubdtype(agg.time.dtype, np.datetime64), (
+        f"expected datetime64 time, got {agg.time.dtype}. "
+        "String-typed time breaks the final inner merge in dynamic_periods."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — small helpers
+# ---------------------------------------------------------------------------
+
+
+def test_simulate_monthly_disease_data_shape(xxx_adm2):
+    gdf = _gdf_with_location_id(xxx_adm2)
+    df = _simulate_monthly_disease_data(gdf, "location_id")
+    assert set(df.columns) == {"location_id", "time", "disease"}
+    assert len(df) == len(gdf) * 36
+    assert df["time"].nunique() == 36
+    assert set(df["location_id"]) == set(gdf["location_id"])
+
+
+def test_prepare_boundaries_standardizes_columns(monkeypatch, xxx_adm2):
+    monkeypatch.setattr(
+        cgis.io.boundaries, "load", lambda country, level: xxx_adm2.copy()
+    )
+    gdf = prepare_boundaries("XXX", level=2)
+    assert list(gdf.columns) == ["geometry", "location_id"]
+    assert set(gdf["location_id"]) == {"SW", "SE", "NW", "NE"}
+    assert gdf.crs.to_string() == "EPSG:4326"
+
+
+def test_get_health_data_csv_renames_chap_columns(xxx_disease_csv, xxx_adm2):
+    gdf = _gdf_with_location_id(xxx_adm2)
+    ds = get_health_data(str(xxx_disease_csv), gdf)
+    assert set(ds.dims) == {"location_id", "time"}
+    assert "disease" in ds.data_vars
+    assert np.issubdtype(ds.time.dtype, np.datetime64)
+    assert ds.sizes["time"] == 36
+    assert set(ds.location_id.values) == {"SW", "SE", "NW", "NE"}
+
+
+def test_get_health_data_falls_back_to_simulation(tmp_path, xxx_adm2):
+    gdf = _gdf_with_location_id(xxx_adm2)
+    ds = get_health_data(str(tmp_path / "missing.csv"), gdf)
+    assert "disease" in ds.data_vars
+    assert ds.sizes["time"] == 36
+
+
+# ---------------------------------------------------------------------------
+# End-to-end CLI test (heavy monkeypatching — see module docstring)
+# ---------------------------------------------------------------------------
+
+
+def _stub_run_exposure_pipeline(
+    *,
+    aoi,
+    landcover_native,
+    elev_native,
+    tas_monthly,
+    population_native,
+    rice_native,
+    params,
+):
+    """Stand in for ``pipelines.malaria_exposure.run``.
+
+    Returns a properly georeferenced pixel-level Dataset with ``pop_exposure``.
+    We do not stub ``_calculate_monthly_exposure_from_vars`` itself because
+    that function contains the string-time bug we want the e2e assertion to
+    catch.
+    """
+    times = tas_monthly.time.values
+    xs = (np.arange(8) + 0.5) / 8.0
+    ys = (np.arange(8)[::-1] + 0.5) / 8.0
+    data = np.ones((len(times), 8, 8), dtype="float32") * 10.0
+    da = xr.DataArray(
+        data,
+        dims=("time", "y", "x"),
+        coords={"time": times, "y": ys, "x": xs},
+        name="pop_exposure",
+    ).rio.write_crs("EPSG:4326")
+    return xr.Dataset({"pop_exposure": da})
+
+
+@pytest.fixture
+def patched_loaders(
+    monkeypatch,
+    xxx_adm2,
+    xxx_pop_yearly,
+    xxx_tas_monthly,
+    xxx_elev_native,
+    xxx_landcover_native,
+    xxx_rice_native,
+):
+    """Patch every external loader the CLI touches.
+
+    Also patches ``run_exposure_pipeline`` so the heavyweight pixel pipeline
+    is bypassed — we are testing CLI orchestration, not the exposure model.
+    Returns a dict of call counters so tests can assert how often each loader
+    fired (e.g. to catch the per-year reload of static layers).
+    """
+    counts = {"worldcover": 0, "elevation": 0, "rice": 0,
+              "worldpop": 0, "chelsa": 0, "boundaries": 0}
+
+    def _count(name, value):
+        def _inner(*a, **kw):
+            counts[name] += 1
+            return value
+        return _inner
+
+    monkeypatch.setattr(cgis.io.boundaries, "load", _count("boundaries", xxx_adm2))
+    monkeypatch.setattr(cgis.io.worldpop, "load", _count("worldpop", xxx_pop_yearly))
+    monkeypatch.setattr(cgis.io.chelsa, "load", _count("chelsa", xxx_tas_monthly))
+    monkeypatch.setattr(cgis.io.worldcover, "load", _count("worldcover", xxx_landcover_native))
+    monkeypatch.setattr(cgis.io.elevation, "load", _count("elevation", xxx_elev_native))
+    monkeypatch.setattr(cgis.io.rice, "load", _count("rice", xxx_rice_native))
+    monkeypatch.setattr(cli_dynamic, "run_exposure_pipeline", _stub_run_exposure_pipeline)
+
+    return counts
+
+
+def test_dynamic_periods_writes_full_csv(
+    patched_loaders, tmp_path, xxx_disease_csv, xxx_adm2
+):
+    """End-to-end smoke test. Expected to fail today due to the time-dtype bug.
+
+    The closing ``xr.merge(..., join="inner")`` aligns datetime64 ``health_xr``
+    against string-typed ``tas_agg`` / ``exposure_ds`` and produces an empty
+    intersection, so the output CSV has 0 rows (or all-NaN env columns).
+    """
+    out_path = tmp_path / "out.csv"
+    dynamic_periods(
+        country="XXX",
+        level=2,
+        inter=True,
+        input_csv=str(xxx_disease_csv),
+        out_path=out_path,
+    )
+
+    assert out_path.exists()
+    df = pd.read_csv(out_path)
+
+    assert {"time", "location_id", "disease", "population", "tas", "pop_exposure"} <= set(df.columns)
+
+    expected_times = (
+        pd.date_range("2017-01-01", periods=36, freq="MS").strftime("%Y-%m").tolist()
+    )
+    expected_locations = set(xxx_adm2["shapeName"].astype(str))
+    expected_pairs = {(loc, t) for loc in expected_locations for t in expected_times}
+    actual_pairs = set(zip(df["location_id"].astype(str), df["time"].astype(str)))
+
+    assert actual_pairs == expected_pairs, (
+        f"output is missing {len(expected_pairs - actual_pairs)} (location, time) pairs "
+        f"and has {len(actual_pairs - expected_pairs)} unexpected ones. "
+        "Today this fails because the closing xr.merge(..., join='inner') aligns "
+        "datetime64 health_xr against string-typed tas_agg / exposure_ds and "
+        "produces an empty intersection."
+    )
+    assert not df.duplicated(subset=["location_id", "time"]).any(), (
+        "duplicate (location_id, time) rows in output"
+    )
+    assert df["population"].notna().all(), "population NaNs imply the inner merge collapsed"
+    assert df["tas"].notna().all(), "tas NaNs imply the inner merge collapsed"
+    assert df["pop_exposure"].notna().all()
+
+
+def test_dynamic_periods_loads_static_layers_once(
+    patched_loaders, tmp_path, xxx_disease_csv
+):
+    """Static layers must not be reloaded per year.
+
+    The disease CSV covers 3 years; worldcover/elevation/rice are static across
+    years. They are currently loaded inside the yearly loop, so this test will
+    fail until the loads are hoisted out (and worldcover's year clamp is
+    addressed — see concern (3) in dynamic.py).
+    """
+    out_path = tmp_path / "out.csv"
+    dynamic_periods(
+        country="XXX",
+        level=2,
+        inter=True,
+        input_csv=str(xxx_disease_csv),
+        out_path=out_path,
+    )
+
+    assert patched_loaders["worldcover"] == 1, (
+        f"worldcover loaded {patched_loaders['worldcover']} times — "
+        "static layers should be hoisted out of the yearly loop"
+    )
+    assert patched_loaders["elevation"] == 1
+    assert patched_loaders["rice"] == 1
+    # CHELSA + WorldPop are loaded once each by get_environmental_data
+    assert patched_loaders["chelsa"] == 1
+    assert patched_loaders["worldpop"] == 1

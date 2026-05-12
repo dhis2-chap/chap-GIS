@@ -16,6 +16,7 @@ from .analyze import analyze
 from .visualize import visualize
 from .aggregate import aggregate
 from .merge import merge
+from .dynamic import dynamic_periods
 
 
 logging.basicConfig(
@@ -30,6 +31,7 @@ app.command(analyze)
 app.command(visualize)
 app.command(aggregate)
 app.command(merge)
+app.command(dynamic_periods)
 
 
 __all__ = ["app"]

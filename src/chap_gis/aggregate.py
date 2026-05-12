@@ -2,9 +2,15 @@
 import xarray as xr
 import geopandas as gpd
 
+import pandas as pd
 from exactextract import Writer
 from exactextract.feature import JSONFeature
 import exactextract
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # custom xarray output writer class
 # TODO: remove after we get it merged into exactextract
@@ -141,4 +147,103 @@ def aggregate_to_regions(grid: xr.DataArray, regions: gpd.GeoDataFrame, statisti
     agg_ds = agg_ds.rename({'feature': id_field, 'band': 'time'})
 
     # return
+    return agg_ds
+
+def aggregate_population_by_year(pop_da: xr.DataArray, gdf: gpd.GeoDataFrame) -> xr.Dataset:
+    """
+    Aggregates population raster data to administrative regions.
+    
+    This function handles:
+    1. CRS verification for spatial alignment.
+    2. Zonal statistics (sum) across all time steps.
+    3. Restoring location names from the GeoDataFrame.
+    4. Restoring actual year/time labels from the input raster.
+    5. Standardizing variable names for downstream merging.
+    """
+    logger.info("Starting regional population aggregation...")
+    
+    # 1. Coordinate Reference System (CRS) check
+    # exact_extract requires the raster and gdf to have defined CRSs.
+    if pop_da.rio.crs is None:
+        logger.warning("Raster CRS missing. Defaulting to EPSG:4326.")
+        pop_da = pop_da.rio.write_crs("EPSG:4326")
+    
+    # 2. Execute Zonal Statistics
+    # aggregate_to_regions returns dims ['location_id', 'time'] 
+    # but initially uses integer indices (0, 1, 2...) for coordinates.
+    agg_ds = aggregate_to_regions(
+        pop_da, 
+        gdf, 
+        statistic="sum", 
+        id_field='location_id'
+    )
+
+    # 3. Restore Coordinate Labels
+    # We replace the integer indices with the actual metadata from our inputs.
+    agg_ds = agg_ds.assign_coords({
+        "location_id": gdf['location_id'].values,
+        "time": pop_da.time.values
+    })
+
+    # 4. Standardize Variable Names
+    # exact_extract outputs the name of the statistic ('sum'). 
+    # We rename it to 'population' to match health data expectations.
+    if "sum" in agg_ds.data_vars:
+        agg_ds = agg_ds.rename({"sum": "population"})
+    elif "values" in agg_ds.data_vars:
+        agg_ds = agg_ds.rename({"values": "population"})
+
+    # 5. Clean up Metadata
+    # Remove any residual 'band' coordinates if they exist
+    if 'band' in agg_ds.coords:
+        agg_ds = agg_ds.drop_vars('band')
+
+    logger.info(f"Aggregation complete for {len(agg_ds.location_id)} regions.")
+    return agg_ds
+
+def aggregate_temperature_by_month(tas_da: xr.DataArray, gdf: gpd.GeoDataFrame) -> xr.Dataset:
+    """
+    Aggregates CHELSA monthly temperature rasters to administrative regions.
+    
+    This function handles:
+    1. CRS verification.
+    2. Zonal statistics (mean) across all monthly time steps.
+    3. Restoring location and time metadata (formatted as YYYY-MM).
+    4. Renaming the output variable to 'tas'.
+    """
+    logger.info("Starting regional temperature aggregation...")
+    
+    # 1. Coordinate Reference System (CRS) check
+    if tas_da.rio.crs is None:
+        logger.warning("Temperature raster CRS missing. Defaulting to EPSG:4326.")
+        tas_da = tas_da.rio.write_crs("EPSG:4326")
+    
+    # 2. Execute Zonal Statistics
+    agg_ds = aggregate_to_regions(
+        tas_da, 
+        gdf, 
+        statistic="mean", 
+        id_field='location_id'
+    )
+
+    if isinstance(agg_ds, xr.DataArray):
+        agg_ds = agg_ds.to_dataset(name="tas")
+
+    
+    agg_ds = agg_ds.assign_coords({
+        "location_id": gdf["location_id"].values,
+        "time": pd.to_datetime(tas_da.time.values)
+    })
+
+    # 4. Standardize Variable Names
+    if "mean" in agg_ds.data_vars:
+        agg_ds = agg_ds.rename({"mean": "tas"})
+    elif "values" in agg_ds.data_vars:
+        agg_ds = agg_ds.rename({"values": "tas"})
+
+    # 5. Clean up Metadata
+    if 'band' in agg_ds.coords:
+        agg_ds = agg_ds.drop_vars('band')
+
+    logger.info(f"Aggregation complete for {len(agg_ds.location_id)} regions.")
     return agg_ds
