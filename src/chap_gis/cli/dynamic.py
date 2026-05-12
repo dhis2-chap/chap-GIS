@@ -1,83 +1,3 @@
-"""``dynamic_periods`` subcommand: multi-month, multi-year exposure pipeline.
-
-TODO(testability) — refactor this module so the orchestration is testable
-without monkeypatching six different ``chap_gis.io.*`` loaders:
-
-    1. Extract a pure inner function::
-
-           def _run(
-               *,
-               gdf: GeoDataFrame,
-               health_xr: xr.Dataset,
-               pop_native: xr.DataArray,
-               tas_native: xr.DataArray,
-               landcover_native: xr.DataArray,
-               elev_native: xr.DataArray,
-               rice_native: xr.DataArray,
-               params: MalariaExposureParams,
-           ) -> xr.Dataset: ...
-
-       ``dynamic_periods`` becomes thin: load → _run → write CSV. The inner
-       function is drivable with synthetic DataArrays — no patching needed.
-       This mirrors how ``pipelines/malaria_exposure.run`` is already split
-       out from ``cli/analyze.py``.
-    2. Hoist the static-layer loads (worldcover, elevation, rice) out of the
-       per-year loop in ``_calculate_monthly_exposure_from_vars`` — they do
-       not change between years.
-    3. Promote ``MalariaExposureParams`` (currently constructed inline with
-       ``resolution_m=30.0``) to a CLI option so tests can pass a coarser
-       resolution and the full pipeline can run on tiny synthetic AOIs in
-       under a second.
-
-KNOWN CORRECTNESS CONCERNS — each is targeted by a test in
-``tests/test_cli_dynamic.py`` that is expected to fail today and turn green
-when the bug is fixed:
-
-    1. **Time dtype mismatch silently empties the final inner merge.**
-       ``aggregate_temperature_by_month`` (in ``chap_gis.aggregate``) and
-       ``_calculate_monthly_exposure_from_vars`` (below) cast ``time`` to
-       ``YYYY-MM`` strings via ``dt.strftime``. ``health_xr`` and ``pop_agg``
-       keep ``datetime64``. The closing
-       ``xr.merge([..., join="inner"])`` therefore aligns nothing on the
-       time axis and the output CSV is empty or all-NaN.
-       Reveal: assert ``np.issubdtype(agg.time.dtype, np.datetime64)`` on
-       the aggregators, and assert the end-to-end CSV has
-       ``len(df) == n_locations * n_months`` rows.
-
-    2. **Static layers reloaded every year.**
-       worldcover, elevation, and rice are loaded once *per year* inside the
-       loop. They are static across years (and worldcover is in fact clamped
-       to 2020/2021 — see (3)).
-       Reveal: monkeypatch each loader with a call counter and assert it is
-       called exactly once across a multi-year run.
-
-    3. **WorldCover year silently clamped to 2020–2021.**
-       ``worldcover_year = max(2020, min(requested_year, 2021))`` returns
-       2020 for any year ≤ 2020 and 2021 for any year ≥ 2021 with only an
-       INFO log. Outputs are then mis-labelled with respect to the year the
-       caller asked for.
-       Reveal: parametrize the inner function with
-       ``requested_year ∈ {2018, 2020, 2021, 2025}`` and assert either an
-       explicit warning, or (after refactor) that the resolved year is a
-       caller-supplied parameter.
-
-    4. **``pop_xr.compute()`` materializes the full raster early.**
-       For multi-year, country-scale rasters this is a memory cliff that
-       defeats the laziness ``run_exposure_pipeline`` carefully preserves.
-       The ``gc.collect()`` calls in the loop are the symptom.
-       Reveal: harder to unit-test; an integration test on a moderately
-       sized country watched for peak RSS would catch it.
-
-    5. **``aoi=gdf`` vs ``aoi=country_geom``.**
-       ``dynamic_periods`` passes the level-N admin GDF as ``aoi`` into the
-       exposure pipeline, which uses it to build the grid. ``cli/analyze``
-       uses level-0 boundaries here. The difference is inefficient at best
-       (the grid is built from the union of every admin polygon) and may
-       silently change the grid extent at worst.
-       Reveal: assert the grid extent built inside the pipeline matches the
-       expected country bbox rather than the admin GDF's geometry union.
-"""
-
 import logging
 from pathlib import Path
 from typing import Optional
@@ -199,7 +119,7 @@ def _run_core_logic(gdf, health_xr, pop_native, tas_native, landcover_native, el
         ds_pixel = run_exposure_pipeline(
             aoi=gdf, landcover_native=landcover_native, elev_native=elev_native,
             tas_monthly=tas_year, population_native=pop_year, rice_native=rice_native, params=params,
-        ).compute()
+        )
 
         logger.info("Aggregating exposure results to regions")
         expo_agg = aggregate_to_regions(ds_pixel["pop_exposure"], gdf, statistic="sum", id_field='location_id')
@@ -214,17 +134,7 @@ def _run_core_logic(gdf, health_xr, pop_native, tas_native, landcover_native, el
         "location_id": gdf['location_id'].values,
         "time": pd.to_datetime(ds_pixel.time.values)
         })
-        
-        # KEY FIX: Explicitly assign the datetime64 time coordinate from the pixel results
-        expo_agg = expo_agg.assign_coords({
-            "location_id": gdf['location_id'].values,
-            "time": ds_pixel.time.values  # This is datetime64[ns]
-        })
-
-
-        if "sum" in expo_agg.data_vars:
-            expo_agg = expo_agg.rename({"sum": "pop_exposure"})
-            
+                    
         yearly_results.append(expo_agg)
 
     exposure_ds = xr.concat(yearly_results, dim="time")
