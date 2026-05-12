@@ -122,7 +122,6 @@ def prepare_boundaries(country: str, level: int) -> GeoDataFrame:
 def get_health_data(input_csv: str, regions_df: GeoDataFrame) -> xr.Dataset:
     """Loads health data and ensures variable naming and datetime types."""
     if input_csv and Path(input_csv).exists():
-        logger.info(f"Loading health data from {input_csv}")
         df = pd.read_csv(input_csv)
         
         # Mapping to satisfy: test_get_health_data_csv_renames_chap_columns
@@ -246,7 +245,7 @@ def dynamic_periods(
     country: str,
     level: int = 5,
     inter: bool = True,
-    input_csv: str = "data/inputs/disease_data.csv",
+    input_csv: str = "data/inputs/disease-data.csv",
     out_path: Path = Path("data/outputs/health_pipeline_output.csv"),
 ) -> None:
     logger.info(f"Running dynamic_periods for {country} at level {level} with inter={inter}")
