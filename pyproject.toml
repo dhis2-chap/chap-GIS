@@ -30,6 +30,7 @@ dependencies = [
     "openeo",
     "exactextract",
     "pydantic>=2",
+    "bottleneck>=1.6.0",
 ]
 
 [project.scripts]
