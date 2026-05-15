@@ -153,6 +153,7 @@ def _run_core_logic(gdf, health, pop, tas, country, params):
         expo_raster = ds["pop_exposure"]
         
         # Aggregate to regions (this is often the 'compute' trigger)
+        logger.info(f"Aggregating exposure for year {y}... to regions")
         expo_out = aggregate_to_regions(
             expo_raster,
             gdf,
