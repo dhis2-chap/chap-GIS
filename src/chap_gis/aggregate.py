@@ -6,6 +6,7 @@ import pandas as pd
 from exactextract import Writer
 from exactextract.feature import JSONFeature
 import exactextract
+from dask.diagnostics import ProgressBar
 
 import logging
 
@@ -131,22 +132,39 @@ class XArrayWriter(Writer):
 # main function
 
 def aggregate_to_regions(grid: xr.DataArray, regions: gpd.GeoDataFrame, statistic: str, id_field: str):
-    # until we get native xarray support, we need to init our custom writer class with options
-    writer = XArrayWriter(
-        #dim_name="time",
-        #dim_coords=grid.coords["time"].values,
-    )
+    # 1. TRIGGER COMPUTE HERE
+    # If the grid is a Dask array (lazy), exact_extract will crash or crawl.
+    # Computing it once here turns it into a NumPy array that the C++ engine 
+    # can scan through very quickly.
+    if hasattr(grid.data, "dask"):
+        logger.info(f"Computing exposure raster chunks for regional aggregation...")
+        # This context manager will show progress for the .compute() call
+        with ProgressBar():
+            grid = grid.compute()
+
+    # 2. Setup the writer
+    writer = XArrayWriter()
     
-    # get the raw aggregate
-    agg_ds = exactextract.exact_extract(grid, regions, [statistic], 
-                                        strategy='raster-sequential', 
-                                        include_cols=[id_field],
-                                        output=writer)
+    # 3. Execute - this will now be MUCH faster because it's working on a NumPy array
+    agg_ds = exactextract.exact_extract(
+        grid, 
+        regions, 
+        [statistic], 
+        strategy='raster-sequential', 
+        include_cols=[id_field],
+        output=writer,
+        progress=True
+    )
 
-    # rename default aggregation xarray dims
-    agg_ds = agg_ds.rename({'feature': id_field, 'band': 'time'})
+    # 4. Rename default aggregation xarray dims
+    # Note: Check if 'feature' and 'band' exist in agg_ds before renaming
+    rename_dict = {}
+    if 'feature' in agg_ds.dims: rename_dict['feature'] = id_field
+    if 'band' in agg_ds.dims: rename_dict['band'] = 'time'
+    
+    if rename_dict:
+        agg_ds = agg_ds.rename(rename_dict)
 
-    # return
     return agg_ds
 
 def aggregate_population_by_year(pop_da: xr.DataArray, gdf: gpd.GeoDataFrame) -> xr.Dataset:
