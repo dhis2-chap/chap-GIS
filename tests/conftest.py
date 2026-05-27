@@ -146,7 +146,6 @@ def xxx_landcover_native():
 @pytest.fixture
 def xxx_rice_native():
     """Reuse the committed synthetic rice raster as a DataArray."""
-    import rioxarray
     return rioxarray.open_rasterio(DATA_DIR / "xxx_jiang_rice_fields.tif")
 
 

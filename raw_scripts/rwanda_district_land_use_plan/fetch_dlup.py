@@ -379,7 +379,7 @@ def main():
     features = clip_features(features, aoi)
     out_path = args.out or str(out_dir / f"{stem}_dlup.geojson")
     save_geojson(features, out_path, f"{stem}_DLUP")
-    print(f"\nDLUP summary:", file=sys.stderr)
+    print("\nDLUP summary:", file=sys.stderr)
     print_summary(features)
 
     print("\nDone.", file=sys.stderr)

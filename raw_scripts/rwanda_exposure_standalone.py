@@ -34,7 +34,6 @@ Dispersal model:
   Temperature: S(T) Mordecai/Villena TPC -- Gaussian at 25 deg C, zero below 16 deg C
 """
 
-import argparse
 import subprocess
 from pathlib import Path
 

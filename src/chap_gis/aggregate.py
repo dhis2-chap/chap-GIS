@@ -54,7 +54,7 @@ class XArrayWriter(Writer):
 
     def write(self, feature):
         f = JSONFeature()
-        feature.copy_to(f);
+        feature.copy_to(f)
 
         props = f.feature["properties"]
         row = {col: props.get(col) for col in self._id_cols}
@@ -137,7 +137,7 @@ def aggregate_to_regions(grid: xr.DataArray, regions: gpd.GeoDataFrame, statisti
     # Computing it once here turns it into a NumPy array that the C++ engine 
     # can scan through very quickly.
     if hasattr(grid.data, "dask"):
-        logger.info(f"Computing exposure raster chunks for regional aggregation...")
+        logger.info("Computing exposure raster chunks for regional aggregation...")
         # This context manager will show progress for the .compute() call
         with ProgressBar():
             grid = grid.compute()
@@ -159,8 +159,10 @@ def aggregate_to_regions(grid: xr.DataArray, regions: gpd.GeoDataFrame, statisti
     # 4. Rename default aggregation xarray dims
     # Note: Check if 'feature' and 'band' exist in agg_ds before renaming
     rename_dict = {}
-    if 'feature' in agg_ds.dims: rename_dict['feature'] = id_field
-    if 'band' in agg_ds.dims: rename_dict['band'] = 'time'
+    if 'feature' in agg_ds.dims:
+        rename_dict['feature'] = id_field
+    if 'band' in agg_ds.dims:
+        rename_dict['band'] = 'time'
     
     if rename_dict:
         agg_ds = agg_ds.rename(rename_dict)
