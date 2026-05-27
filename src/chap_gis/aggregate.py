@@ -6,6 +6,7 @@ import pandas as pd
 from exactextract import Writer
 from exactextract.feature import JSONFeature
 import exactextract
+from dask.diagnostics import ProgressBar
 
 import logging
 
@@ -131,46 +132,62 @@ class XArrayWriter(Writer):
 # main function
 
 def aggregate_to_regions(grid: xr.DataArray, regions: gpd.GeoDataFrame, statistic: str, id_field: str):
-    # until we get native xarray support, we need to init our custom writer class with options
-    writer = XArrayWriter(
-        #dim_name="time",
-        #dim_coords=grid.coords["time"].values,
-    )
+    # 1. TRIGGER COMPUTE HERE
+    # If the grid is a Dask array (lazy), exact_extract will crash or crawl.
+    # Computing it once here turns it into a NumPy array that the C++ engine 
+    # can scan through very quickly.
+    if hasattr(grid.data, "dask"):
+        logger.info("Computing exposure raster chunks for regional aggregation...")
+        # This context manager will show progress for the .compute() call
+        with ProgressBar():
+            grid = grid.compute()
+
+    # 2. Setup the writer
+    writer = XArrayWriter()
     
-    # get the raw aggregate
-    agg_ds = exactextract.exact_extract(grid, regions, [statistic], 
-                                        strategy='raster-sequential', 
-                                        include_cols=[id_field],
-                                        output=writer)
+    # 3. Execute - this will now be MUCH faster because it's working on a NumPy array
+    agg_ds = exactextract.exact_extract(
+        grid, 
+        regions, 
+        [statistic], 
+        strategy='raster-sequential', 
+        include_cols=[id_field],
+        output=writer,
+        progress=True
+    )
 
-    # rename default aggregation xarray dims
-    agg_ds = agg_ds.rename({'feature': id_field, 'band': 'time'})
+    # 4. Rename default aggregation xarray dims
+    # Note: Check if 'feature' and 'band' exist in agg_ds before renaming
+    rename_dict = {}
+    if 'feature' in agg_ds.dims:
+        rename_dict['feature'] = id_field
+    if 'band' in agg_ds.dims:
+        rename_dict['band'] = 'time'
+    
+    if rename_dict:
+        agg_ds = agg_ds.rename(rename_dict)
 
-    # return
     return agg_ds
 
 def aggregate_population_by_year(pop_da: xr.DataArray, gdf: gpd.GeoDataFrame) -> xr.Dataset:
     """
     Aggregates population raster data to administrative regions.
-    
-    This function handles:
-    1. CRS verification for spatial alignment.
-    2. Zonal statistics (sum) across all time steps.
-    3. Restoring location names from the GeoDataFrame.
-    4. Restoring actual year/time labels from the input raster.
-    5. Standardizing variable names for downstream merging.
+    Internalizes the .compute() to avoid exactextract 'bad variant access'.
     """
     logger.info("Starting regional population aggregation...")
     
-    # 1. Coordinate Reference System (CRS) check
-    # exact_extract requires the raster and gdf to have defined CRSs.
+    # CRS check
     if pop_da.rio.crs is None:
         logger.warning("Raster CRS missing. Defaulting to EPSG:4326.")
         pop_da = pop_da.rio.write_crs("EPSG:4326")
     
-    # 2. Execute Zonal Statistics
-    # aggregate_to_regions returns dims ['location_id', 'time'] 
-    # but initially uses integer indices (0, 1, 2...) for coordinates.
+    # CRITICAL: exact_extract cannot handle Dask arrays. 
+    # We compute here to provide a NumPy-backed array to the C++ engine.
+    if hasattr(pop_da.data, "dask"):
+        logger.info("Computing population chunks for regional aggregation...")
+        pop_da = pop_da.compute()
+
+    # Execute Zonal Statistics
     agg_ds = aggregate_to_regions(
         pop_da, 
         gdf, 
@@ -178,47 +195,43 @@ def aggregate_population_by_year(pop_da: xr.DataArray, gdf: gpd.GeoDataFrame) ->
         id_field='location_id'
     )
 
-    # 3. Restore Coordinate Labels
-    # We replace the integer indices with the actual metadata from our inputs.
+    # Restore Coordinate Labels
     agg_ds = agg_ds.assign_coords({
         "location_id": gdf['location_id'].values,
         "time": pop_da.time.values
     })
 
-    # 4. Standardize Variable Names
-    # exact_extract outputs the name of the statistic ('sum'). 
-    # We rename it to 'population' to match health data expectations.
+    # Standardize Variable Names
     if "sum" in agg_ds.data_vars:
         agg_ds = agg_ds.rename({"sum": "population"})
     elif "values" in agg_ds.data_vars:
         agg_ds = agg_ds.rename({"values": "population"})
 
-    # 5. Clean up Metadata
-    # Remove any residual 'band' coordinates if they exist
     if 'band' in agg_ds.coords:
         agg_ds = agg_ds.drop_vars('band')
 
     logger.info(f"Aggregation complete for {len(agg_ds.location_id)} regions.")
     return agg_ds
 
+
 def aggregate_temperature_by_month(tas_da: xr.DataArray, gdf: gpd.GeoDataFrame) -> xr.Dataset:
     """
     Aggregates CHELSA monthly temperature rasters to administrative regions.
-    
-    This function handles:
-    1. CRS verification.
-    2. Zonal statistics (mean) across all monthly time steps.
-    3. Restoring location and time metadata (formatted as YYYY-MM).
-    4. Renaming the output variable to 'tas'.
+    Internalizes the .compute() to avoid exactextract 'bad variant access'.
     """
     logger.info("Starting regional temperature aggregation...")
     
-    # 1. Coordinate Reference System (CRS) check
+    # CRS check
     if tas_da.rio.crs is None:
         logger.warning("Temperature raster CRS missing. Defaulting to EPSG:4326.")
         tas_da = tas_da.rio.write_crs("EPSG:4326")
     
-    # 2. Execute Zonal Statistics
+    # CRITICAL: Compute chunks before passing to exact_extract engine
+    if hasattr(tas_da.data, "dask"):
+        logger.info("Computing temperature chunks for regional aggregation...")
+        tas_da = tas_da.compute()
+
+    # Execute Zonal Statistics
     agg_ds = aggregate_to_regions(
         tas_da, 
         gdf, 
@@ -229,19 +242,17 @@ def aggregate_temperature_by_month(tas_da: xr.DataArray, gdf: gpd.GeoDataFrame) 
     if isinstance(agg_ds, xr.DataArray):
         agg_ds = agg_ds.to_dataset(name="tas")
 
-    
     agg_ds = agg_ds.assign_coords({
         "location_id": gdf["location_id"].values,
         "time": pd.to_datetime(tas_da.time.values)
     })
 
-    # 4. Standardize Variable Names
+    # Standardize Variable Names
     if "mean" in agg_ds.data_vars:
         agg_ds = agg_ds.rename({"mean": "tas"})
     elif "values" in agg_ds.data_vars:
         agg_ds = agg_ds.rename({"values": "tas"})
 
-    # 5. Clean up Metadata
     if 'band' in agg_ds.coords:
         agg_ds = agg_ds.drop_vars('band')
 
