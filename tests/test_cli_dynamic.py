@@ -40,9 +40,9 @@ from chap_gis.cli.dynamic import (
 
 
 def _gdf_with_location_id(xxx_adm2):
-    """XXX ADM2 fixture, plus a ``location_id`` column matching shapeName."""
+    """XXX ADM2 fixture, plus a ``location_id`` column matching shapeID."""
     gdf = xxx_adm2.copy()
-    gdf["location_id"] = gdf["shapeName"].astype(str)
+    gdf["location_id"] = gdf["shapeID"].astype(str)
     return gdf
 
 
@@ -96,7 +96,7 @@ def test_prepare_boundaries_standardizes_columns(monkeypatch, xxx_adm2):
     )
     gdf = prepare_boundaries("XXX", level=2)
     assert list(gdf.columns) == ["geometry", "location_id"]
-    assert set(gdf["location_id"]) == {"SW", "SE", "NW", "NE"}
+    assert set(gdf["location_id"]) == {"XXX-ADM2-SW", "XXX-ADM2-SE", "XXX-ADM2-NW", "XXX-ADM2-NE"}
     assert gdf.crs.to_string() == "EPSG:4326"
 
 
@@ -107,7 +107,7 @@ def test_get_health_data_csv_renames_chap_columns(xxx_disease_csv, xxx_adm2):
     assert "disease" in ds.data_vars
     assert np.issubdtype(ds.time.dtype, np.datetime64)
     assert ds.sizes["time"] == 36
-    assert set(ds.location_id.values) == {"SW", "SE", "NW", "NE"}
+    assert set(ds.location_id.values) == {"XXX-ADM2-SW", "XXX-ADM2-SE", "XXX-ADM2-NW", "XXX-ADM2-NE"}
 
 
 def test_get_health_data_falls_back_to_simulation(tmp_path, xxx_adm2):
@@ -215,7 +215,7 @@ def test_dynamic_periods_writes_full_csv(
     expected_times = (
         pd.date_range("2017-01-01", periods=36, freq="MS").strftime("%Y-%m").tolist()
     )
-    expected_locations = set(xxx_adm2["shapeName"].astype(str))
+    expected_locations = set(xxx_adm2["shapeID"].astype(str))
     expected_pairs = {(loc, t) for loc in expected_locations for t in expected_times}
     actual_pairs = set(zip(df["location_id"].astype(str), df["time"].astype(str)))
 

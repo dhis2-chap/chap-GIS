@@ -45,7 +45,11 @@ def normalize(ds: xr.Dataset | xr.DataArray, name: str) -> xr.Dataset:
 
 def prepare_boundaries(country: str, level: int) -> gpd.GeoDataFrame:
     gdf = cgis.io.boundaries.load(country, level=level)
-    gdf["location_id"] = gdf.get("shapeName", gdf.index).astype(str)
+    id_col = next(
+        (c for c in ("shapeID", "shapeName") if c in gdf.columns),
+        None,
+    )
+    gdf["location_id"] = (gdf[id_col] if id_col else gdf.index).astype(str)
     gdf = gdf[["geometry", "location_id"]].to_crs("EPSG:4326")
     gdf = gdf[gdf.geometry.notnull() & ~gdf.geometry.is_empty].copy()
 
