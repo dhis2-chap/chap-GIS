@@ -72,7 +72,7 @@ def run(
     population = population_native.pipe(reproject_population_to, grid, "bilinear")
     rice_mask = (
         rice_native
-        .pipe(reproject_to, grid, "nearest")
+        .pipe(reproject_to, grid, "average")
         .pipe(lambda r: (r > 0).rio.write_crs(grid.rio.crs))
     )
 

@@ -141,7 +141,18 @@ def _run_core_logic(gdf, health, pop, tas, country, params):
         pop_y = pop.sel(time=slice(f"{y}-01-01", f"{y}-12-31"))
 
         if tas_y.time.size == 0:
+            logger.warning(
+                "No temperature data for %s — skipping year. "
+                "Disease/population rows for this year will not appear in the output.",
+                y,
+            )
             continue
+        if tas_y.time.size < 12:
+            logger.warning(
+                "Only %d of 12 months of temperature data for %s — "
+                "annual mean will be biased toward the available months.",
+                tas_y.time.size, y,
+            )
 
         # Pipeline runs lazily if inputs are Dask-backed
         ds = run_exposure_pipeline(
