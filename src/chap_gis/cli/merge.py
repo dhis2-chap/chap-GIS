@@ -131,7 +131,13 @@ def merge(
 
     # 3. Aggregate Environmental Data
     env_ds = _wrapper(raster_dir, gdf)
-    
+
+    # Population-weighted mean exposure index per person in each region:
+    # Σ(pop·expo) / Σ(pop); guard regions with zero population.
+    env_ds["mean_exposure_per_person"] = (
+        env_ds["pop_exposure"] / env_ds["population"].where(env_ds["population"] > 0)
+    )
+
     # Ensure env_ds uses string coordinate and has NO time dimension
     if 'location_id' in env_ds.coords:
         env_ds.coords['location_id'] = env_ds.coords['location_id'].astype(str)

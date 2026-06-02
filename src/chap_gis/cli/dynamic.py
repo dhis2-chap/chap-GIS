@@ -207,12 +207,18 @@ def dynamic_periods(
     datasets_to_merge = [ds for ds in [health, tas_agg, pop_agg, expo] if ds is not None]
     final = xr.merge(datasets_to_merge, join="inner")
 
+    # Population-weighted mean exposure index per person in each region:
+    # Σ(pop·expo) / Σ(pop); guard regions with zero population.
+    final["mean_exposure_per_person"] = (
+        final["pop_exposure"] / final["population"].where(final["population"] > 0)
+    )
+
     # Final export to pandas (Safe only because these are region-level aggregates)
     df = final.to_dataframe().reset_index()
 
     if not df.empty:
         df["time"] = pd.to_datetime(df["time"]).dt.strftime("%Y-%m")
-        cols_to_keep = ["location_id", "time", "disease", "tas", "population", "pop_exposure"]
+        cols_to_keep = ["location_id", "time", "disease", "tas", "population", "pop_exposure", "mean_exposure_per_person"]
         df = df[[c for c in cols_to_keep if c in df.columns]]
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
