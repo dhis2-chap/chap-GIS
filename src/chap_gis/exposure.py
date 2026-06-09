@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import dask
 import dask.array as da
 import numpy as np
@@ -98,6 +100,101 @@ def _tiled_distance_transform_with_indices(
     return dist_full, iy_full, ix_full
 
 
+class DistanceField(NamedTuple):
+    """Reusable nearest-breeding-site geometry for one breeding mask + grid.
+
+    Everything here is independent of the exposure kernel parameters
+    (``lambda_m``, ``gamma_m``) and of thermal suitability, so it can be
+    computed once and reused across a parameter sweep via
+    :func:`exposure_from_field`. ``iy``/``ix`` index the nearest breeding pixel
+    (``-1`` where no breeding site fell within the EDT halo); ``valid`` flags
+    the in-range pixels.
+    """
+
+    dist_m: np.ndarray
+    dz: np.ndarray
+    iy: np.ndarray
+    ix: np.ndarray
+    valid: np.ndarray
+    breeding: np.ndarray
+    land_mask: np.ndarray | None
+    water_mask: np.ndarray | None
+
+
+def compute_distance_field(
+    breeding,
+    elevation,
+    *,
+    pixel_m: float,
+    lambda_m: float,
+    land_mask=None,
+    water_mask=None,
+) -> DistanceField:
+    """Nearest-breeding-site distance/elevation geometry from numpy inputs.
+
+    ``lambda_m`` only sizes the tiled-EDT halo (the far-field tolerance), not
+    the kernel itself — pass the *largest* lambda of a sweep so the single
+    field stays valid for every kernel later applied by
+    :func:`exposure_from_field`.
+    """
+    breeding = np.asarray(breeding, dtype=bool, order="C")
+    elevation = np.asarray(elevation, dtype=np.float32, order="C")
+    if not breeding.any():
+        raise ValueError("no breeding sites in input mask")
+
+    dist_px, iy, ix = _tiled_distance_transform_with_indices(
+        breeding, pixel_m=pixel_m, lambda_m=lambda_m
+    )
+    dist_m = dist_px * pixel_m
+
+    # Tiles with no breeding sites in their halo are flagged with -1 indices.
+    valid = iy >= 0
+    nearest_elev = np.zeros_like(elevation, dtype=np.float32)
+    nearest_elev[valid] = elevation[iy[valid], ix[valid]]
+    dz = np.maximum(elevation - nearest_elev, 0.0)
+
+    lm = None if land_mask is None else np.asarray(land_mask, dtype=bool, order="C")
+    wm = None if water_mask is None else np.asarray(water_mask, dtype=bool, order="C")
+    return DistanceField(dist_m, dz, iy, ix, valid, breeding, lm, wm)
+
+
+def exposure_from_field(
+    field: DistanceField,
+    suitability,
+    *,
+    lambda_m: float,
+    gamma_m: float,
+) -> np.ndarray:
+    """Apply the exposure kernel to a precomputed :class:`DistanceField`.
+
+    ``exposure = exp(-d / λ) · exp(-max(Δz, 0) / γ) · S(T_nearest)``. Cheap
+    relative to :func:`compute_distance_field`, so a sweep over
+    ``lambda_m``/``gamma_m``/suitability reuses one field across many calls.
+    """
+    expo = (np.exp(-field.dist_m / lambda_m) * np.exp(-field.dz / gamma_m)).astype(
+        np.float32, copy=False
+    )
+    breeding = field.breeding
+
+    if suitability is not None:
+        suit = np.asarray(suitability, dtype=np.float32, order="C")
+        nearest_suit = np.zeros_like(expo, dtype=np.float32)
+        nearest_suit[field.valid] = suit[field.iy[field.valid], field.ix[field.valid]]
+        nearest_suit = np.where(np.isfinite(nearest_suit), nearest_suit, 0.0)
+        expo *= nearest_suit
+        expo[breeding] = np.where(
+            np.isfinite(suit[breeding]), suit[breeding], 0.0
+        )
+    else:
+        expo[breeding] = 1.0
+
+    if field.land_mask is not None:
+        expo[~field.land_mask] = np.nan
+    if field.water_mask is not None:
+        expo[field.water_mask] = np.nan
+    return expo.astype(np.float32)
+
+
 @dask.delayed
 def _exposure_np(
     breeding,
@@ -110,41 +207,17 @@ def _exposure_np(
     gamma_m,
 ):
     """Compute the exposure array from numpy inputs (runs inside a dask task)."""
-    breeding = np.asarray(breeding, dtype=bool, order="C")
-    elevation = np.asarray(elevation, dtype=np.float32, order="C")
-    if not breeding.any():
-        raise ValueError("no breeding sites in input mask")
-
-    dist_px, ny, nx = _tiled_distance_transform_with_indices(
-        breeding, pixel_m=pixel_m, lambda_m=lambda_m
+    field = compute_distance_field(
+        breeding,
+        elevation,
+        pixel_m=pixel_m,
+        lambda_m=lambda_m,
+        land_mask=land_mask,
+        water_mask=water_mask,
     )
-    dist_m = dist_px * pixel_m
-
-    # Tiles with no breeding sites in their halo are flagged with -1 indices.
-    valid = ny >= 0
-    nearest_elev = np.zeros_like(elevation, dtype=np.float32)
-    nearest_elev[valid] = elevation[ny[valid], nx[valid]]
-    dz = np.maximum(elevation - nearest_elev, 0.0)
-
-    expo = np.exp(-dist_m / lambda_m) * np.exp(-dz / gamma_m)
-
-    if suitability is not None:
-        suit = np.asarray(suitability, dtype=np.float32, order="C")
-        nearest_suit = np.zeros_like(expo, dtype=np.float32)
-        nearest_suit[valid] = suit[ny[valid], nx[valid]]
-        nearest_suit = np.where(np.isfinite(nearest_suit), nearest_suit, 0.0)
-        expo *= nearest_suit
-        expo[breeding] = np.where(
-            np.isfinite(suit[breeding]), suit[breeding], 0.0
-        )
-    else:
-        expo[breeding] = 1.0
-
-    if land_mask is not None:
-        expo[~np.asarray(land_mask, dtype=bool)] = np.nan
-    if water_mask is not None:
-        expo[np.asarray(water_mask, dtype=bool)] = np.nan
-    return expo.astype(np.float32)
+    return exposure_from_field(
+        field, suitability, lambda_m=lambda_m, gamma_m=gamma_m
+    )
 
 
 @same_grid

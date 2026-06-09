@@ -15,6 +15,8 @@ fixtures and drop most of the patches.
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -262,3 +264,85 @@ def test_dynamic_periods_loads_static_layers_once(
     # CHELSA + WorldPop are loaded once each by get_environmental_data
     assert patched_loaders["chelsa"] == 1
     assert patched_loaders["worldpop"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Parameter-sweep path (grid_config) — exercises the real exposure machinery
+# ---------------------------------------------------------------------------
+
+
+def test_dynamic_periods_sweep_writes_one_column_set_per_combo(
+    patched_loaders, monkeypatch, tmp_path, xxx_disease_csv, xxx_adm2,
+    xxx_landcover_native, xxx_rice_native,
+):
+    """With a grid_config, the CSV gains a pop_exposure/mean column per combo
+    and a sidecar params manifest.
+
+    Uses a coarse base resolution so the analysis grid is tiny — this path runs
+    the *real* reproject/breeding/distance-field code (run_exposure_pipeline is
+    bypassed), unlike the stubbed e2e test above.
+    """
+    # Real WorldCover arrives float (open_mfdataset masks to NaN nodata); the
+    # uint8 fixture can't be mode-reprojected with a NaN fill, so mirror reality.
+    lc_float = xxx_landcover_native.astype("float32").rio.write_crs("EPSG:4326")
+    monkeypatch.setattr(cgis.io.worldcover, "load", lambda **kw: lc_float)
+    rice_float = (
+        xxx_rice_native.squeeze("band", drop=True)
+        if "band" in xxx_rice_native.dims
+        else xxx_rice_native
+    ).astype("float32").rio.write_crs("EPSG:4326")
+    monkeypatch.setattr(cgis.io.rice, "load", lambda **kw: rice_float)
+
+    grid_cfg = tmp_path / "grid.json"
+    grid_cfg.write_text(
+        json.dumps(
+            {
+                "lambda_m": [400, 651],
+                "gamma_m": [22.5],
+                "water_edge_buffer_pixels": [1, 2],
+                "thermal": [{"t_opt": 25, "sigma": 5, "t_min": 16, "t_max": 34}],
+                "base": {"resolution_m": 3000.0},
+            }
+        )
+    )
+    out_path = tmp_path / "sweep.csv"
+    dynamic_periods(
+        country="XXX",
+        level=2,
+        inter=True,
+        input_csv=str(xxx_disease_csv),
+        out_path=out_path,
+        grid_config=grid_cfg,
+    )
+
+    assert out_path.exists()
+    df = pd.read_csv(out_path)
+
+    # 2 buffers * 1 thermal * 2 lambda * 1 gamma = 4 combos
+    tags = [f"expo_{i:03d}" for i in range(4)]
+    expected_cols = {"location_id", "time", "disease", "tas", "population"}
+    for t in tags:
+        expected_cols |= {f"pop_exposure__{t}", f"mean_exposure_per_person__{t}"}
+    assert expected_cols <= set(df.columns)
+
+    # Full (location, time) coverage, same as the single-combo e2e test.
+    expected_times = (
+        pd.date_range("2017-01-01", periods=36, freq="MS").strftime("%Y-%m").tolist()
+    )
+    expected_locations = set(xxx_adm2["shapeID"].astype(str))
+    expected_pairs = {(loc, t) for loc in expected_locations for t in expected_times}
+    actual_pairs = set(zip(df["location_id"].astype(str), df["time"].astype(str)))
+    assert actual_pairs == expected_pairs
+
+    # Exposure columns are populated (not all-NaN) for at least one combo.
+    assert df["pop_exposure__expo_000"].notna().any()
+
+    # Manifest sidecar maps every tag to its parameters.
+    manifest_path = out_path.with_suffix(".params.json")
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text())
+    assert set(manifest["columns"]) == set(tags)
+    assert manifest["columns"]["expo_000"]["lambda_m"] == 400
+    assert manifest["columns"]["expo_001"]["lambda_m"] == 651
+    assert manifest["columns"]["expo_000"]["water_edge_buffer_pixels"] == 1
+    assert manifest["columns"]["expo_002"]["water_edge_buffer_pixels"] == 2

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import logging
 
 import numpy as np
@@ -17,6 +18,9 @@ from chap_gis.aggregate import (
 from chap_gis.pipelines.malaria_exposure import (
     run as run_exposure_pipeline,
     MalariaExposureParams,
+    ExposureSweepSpec,
+    combo_tag,
+    reproject_layers,
 )
 
 logger = logging.getLogger(__name__)
@@ -186,41 +190,246 @@ def _run_core_logic(gdf, health, pop, tas, country, params):
 
     return xr.concat(results, dim="time") if results else None
 
+
+def _as_named_dataset(agg, name: str) -> xr.Dataset:
+    """Coerce an ``aggregate_to_regions`` result to a Dataset with one var ``name``."""
+    if isinstance(agg, xr.DataArray):
+        return agg.to_dataset(name=name)
+    var = next(iter(agg.data_vars))
+    return agg.rename({var: name})
+
+
+def _load_sweep_spec(path: Path) -> ExposureSweepSpec:
+    """Read a YAML/JSON exposure parameter grid into an :class:`ExposureSweepSpec`."""
+    path = Path(path)
+    text = path.read_text()
+    if path.suffix.lower() in {".yaml", ".yml"}:
+        try:
+            import yaml
+        except ModuleNotFoundError as exc:  # pragma: no cover - optional dep
+            raise RuntimeError(
+                "YAML grid config needs PyYAML (`pip install pyyaml`); "
+                "alternatively pass a .json file."
+            ) from exc
+        data = yaml.safe_load(text)
+    else:
+        data = json.loads(text)
+    return ExposureSweepSpec.model_validate(data)
+
+
+def _run_sweep_logic(gdf, health, pop, tas, country, spec: ExposureSweepSpec):
+    """Multi-combo variant of :func:`_run_core_logic`.
+
+    Reprojects inputs once per year, computes the distance field once per
+    ``water_edge_buffer_pixels`` value, then applies the cheap thermal /
+    lambda / gamma kernels — so N combos cost N region-aggregations but only
+    one reprojection per year and one distance transform per water buffer.
+    Returns a region-level dataset with one ``pop_exposure__<tag>`` var per
+    combo, or ``None`` if no year produced data.
+    """
+    years = np.unique(health.time.dt.year.values)
+    combos = spec.combos()
+    nt, nl, ng = len(spec.thermal), len(spec.lambda_m), len(spec.gamma_m)
+    max_lambda = max(spec.lambda_m)
+    res = spec.base.resolution_m
+
+    worldcover_year = max(2020, min(int(health.time.dt.year.max()), 2021))
+    aoi = cgis.aoi.buffered(gdf, spec.base.aoi_buffer_deg)
+
+    land = chunk(cgis.io.worldcover.load(aoi=aoi, start=worldcover_year, end=worldcover_year, country_code=country))
+    elev = chunk(cgis.io.elevation.load(aoi=aoi, country_code=country))
+    rice = chunk(cgis.io.rice.load(country_code=country))
+
+    logger.info(
+        "Exposure sweep: %d combos over %d year(s); "
+        "%d distance-field build(s) and %d kernel(s) per year",
+        len(combos), len(years), len(spec.water_edge_buffer_pixels), len(combos),
+    )
+
+    per_tag: dict[str, list] = {c.tag: [] for c in combos}
+
+    for y in tqdm(years, desc=f"Sweep years for {country}"):
+        tas_y = tas.sel(time=slice(f"{y}-01-01", f"{y}-12-31"))
+        pop_y = pop.sel(time=slice(f"{y}-01-01", f"{y}-12-31"))
+
+        if tas_y.time.size == 0:
+            logger.warning("No temperature data for %s — skipping year.", y)
+            continue
+        if tas_y.time.size < 12:
+            logger.warning(
+                "Only %d of 12 months of temperature data for %s — "
+                "annual mean will be biased toward the available months.",
+                tas_y.time.size, y,
+            )
+
+        layers = reproject_layers(
+            aoi=gdf,
+            landcover_native=land,
+            elev_native=elev,
+            tas_monthly=tas_y,
+            population_native=pop_y,
+            rice_native=rice,
+            params=spec.base,
+        )
+
+        # Materialise the per-year shared inputs once. Population/temperature
+        # are persisted (kept lazy but cached) so each combo's region
+        # aggregation reuses them instead of recomputing the reprojection.
+        elev_np = np.asarray(layers.elev.compute().values, dtype=np.float32)
+        land_np = np.asarray(cgis.landcover.land_mask(layers.landcover).compute().values, dtype=bool)
+        water_np = np.asarray(cgis.landcover.water_mask(layers.landcover).compute().values, dtype=bool)
+        pop_p = layers.population.persist()
+        temp_p = layers.temperature.persist()
+        crs = layers.grid.rio.crs
+        template = layers.elev  # 2-D dims/coords for wrapping kernel output
+
+        for wb_i, wb in enumerate(spec.water_edge_buffer_pixels):
+            breeding_np = np.asarray(
+                cgis.landcover.breeding_site_mask(
+                    layers.landcover, rice=layers.rice_mask, water_edge_buffer=wb
+                ).compute().values,
+                dtype=bool,
+            )
+            field = cgis.exposure.compute_distance_field(
+                breeding_np, elev_np, pixel_m=res, lambda_m=max_lambda,
+                land_mask=land_np, water_mask=water_np,
+            )
+
+            for th_i, th in enumerate(spec.thermal):
+                suit_np = np.asarray(
+                    cgis.suitability.thermal_suitability(
+                        temp_p, t_opt=th.t_opt, sigma=th.sigma,
+                        t_min=th.t_min, t_max=th.t_max,
+                    ).compute().values,
+                    dtype=np.float32,
+                )
+
+                for lam_i, lam in enumerate(spec.lambda_m):
+                    for gam_i, gam in enumerate(spec.gamma_m):
+                        idx = ((wb_i * nt + th_i) * nl + lam_i) * ng + gam_i
+                        tag = combo_tag(idx)
+
+                        expo_np = cgis.exposure.exposure_from_field(
+                            field, suit_np, lambda_m=lam, gamma_m=gam
+                        )
+                        expo_da = xr.DataArray(
+                            expo_np, dims=template.dims, coords=template.coords
+                        ).rio.write_crs(crs)
+                        pop_exposure = (pop_p * expo_da).rename(
+                            f"pop_exposure__{tag}"
+                        ).rio.write_crs(crs)
+
+                        agg = aggregate_to_regions(
+                            pop_exposure, gdf, statistic="sum", id_field="location_id"
+                        )
+                        agg_y = _as_named_dataset(agg, f"pop_exposure__{tag}")
+                        agg_y = agg_y.assign_coords(time=pop_y.time)
+                        per_tag[tag].append(agg_y)
+
+    merged = [xr.concat(v, dim="time") for v in per_tag.values() if v]
+    return xr.merge(merged, join="inner") if merged else None
+
+
 def dynamic_periods(
     country: str,
     level: int = 5,
     inter: bool = True,
     input_csv: str = "./data/inputs/disease-data.csv",
     out_path: Path = Path("test.csv"),
+    grid_config: Path | None = None,
 ):
+    """Multi-year, multi-month malaria exposure pipeline with health data.
+
+    With ``grid_config`` set (a YAML/JSON :class:`ExposureSweepSpec`), runs a
+    parameter sweep and writes one ``pop_exposure__<tag>`` /
+    ``mean_exposure_per_person__<tag>`` column pair per combo, plus a
+    ``<out>.params.json`` manifest mapping each tag to its parameters.
+    """
     logger.info(f"Starting pipeline for {country}")
 
     gdf = prepare_boundaries(country, level)
     health = get_health_data(input_csv, gdf)
     pop, pop_agg, tas, tas_agg = get_environmental_data(country, health, gdf, inter)
 
-    params = MalariaExposureParams(resolution_m=30.0)
-    expo = _run_core_logic(gdf, health, pop, tas, country, params)
-    
+    if grid_config is None:
+        params = MalariaExposureParams(resolution_m=30.0)
+        expo = _run_core_logic(gdf, health, pop, tas, country, params)
+
+        logger.info("Merging regional datasets...")
+        # These are already aggregated to regions (small), so merge is safe
+        datasets_to_merge = [ds for ds in [health, tas_agg, pop_agg, expo] if ds is not None]
+        final = xr.merge(datasets_to_merge, join="inner")
+
+        # Population-weighted mean exposure index per person in each region:
+        # Σ(pop·expo) / Σ(pop); guard regions with zero population.
+        final["mean_exposure_per_person"] = (
+            final["pop_exposure"] / final["population"].where(final["population"] > 0)
+        )
+
+        # Final export to pandas (Safe only because these are region-level aggregates)
+        df = final.to_dataframe().reset_index()
+
+        if not df.empty:
+            df["time"] = pd.to_datetime(df["time"]).dt.strftime("%Y-%m")
+            cols_to_keep = ["location_id", "time", "disease", "tas", "population", "pop_exposure", "mean_exposure_per_person"]
+            df = df[[c for c in cols_to_keep if c in df.columns]]
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(out_path, index=False)
+        logger.info(f"Done. Rows written: {len(df)}")
+        return
+
+    # --- Parameter-sweep path -------------------------------------------------
+    spec = _load_sweep_spec(grid_config)
+    combos = spec.combos()
+    logger.info("Loaded sweep grid with %d parameter combinations", len(combos))
+
+    expo = _run_sweep_logic(gdf, health, pop, tas, country, spec)
+
     logger.info("Merging regional datasets...")
-    # These are already aggregated to regions (small), so merge is safe
     datasets_to_merge = [ds for ds in [health, tas_agg, pop_agg, expo] if ds is not None]
     final = xr.merge(datasets_to_merge, join="inner")
 
-    # Population-weighted mean exposure index per person in each region:
-    # Σ(pop·expo) / Σ(pop); guard regions with zero population.
-    final["mean_exposure_per_person"] = (
-        final["pop_exposure"] / final["population"].where(final["population"] > 0)
-    )
+    pop_safe = final["population"].where(final["population"] > 0)
+    expo_cols: list[str] = []
+    for c in combos:
+        pe = f"pop_exposure__{c.tag}"
+        if pe not in final:
+            continue
+        mepp = f"mean_exposure_per_person__{c.tag}"
+        final[mepp] = final[pe] / pop_safe
+        expo_cols += [pe, mepp]
 
-    # Final export to pandas (Safe only because these are region-level aggregates)
     df = final.to_dataframe().reset_index()
-
+    base_cols = ["location_id", "time", "disease", "tas", "population"]
     if not df.empty:
         df["time"] = pd.to_datetime(df["time"]).dt.strftime("%Y-%m")
-        cols_to_keep = ["location_id", "time", "disease", "tas", "population", "pop_exposure", "mean_exposure_per_person"]
-        df = df[[c for c in cols_to_keep if c in df.columns]]
+        df = df[[col for col in base_cols + expo_cols if col in df.columns]]
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
-    logger.info(f"Done. Rows written: {len(df)}")
+
+    manifest_path = out_path.with_suffix(".params.json")
+    manifest = {
+        "country": country,
+        "level": level,
+        "columns": {
+            c.tag: {
+                "pop_exposure_column": f"pop_exposure__{c.tag}",
+                "mean_exposure_per_person_column": f"mean_exposure_per_person__{c.tag}",
+                "lambda_m": c.lambda_m,
+                "gamma_m": c.gamma_m,
+                "water_edge_buffer_pixels": c.water_edge_buffer_pixels,
+                "t_opt": c.thermal.t_opt,
+                "sigma": c.thermal.sigma,
+                "t_min": c.thermal.t_min,
+                "t_max": c.thermal.t_max,
+            }
+            for c in combos
+        },
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2))
+    logger.info(
+        "Done. Rows written: %d across %d combos. Params manifest: %s",
+        len(df), len(combos), manifest_path,
+    )
