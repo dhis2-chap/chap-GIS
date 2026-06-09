@@ -22,7 +22,9 @@ import requests
 import rioxarray
 import xarray as xr
 from geopandas import GeoDataFrame
+from requests.adapters import HTTPAdapter
 from rioxarray.merge import merge_arrays
+from urllib3.util.retry import Retry
 
 from .cache import cache_dir, cache_key
 from dhis2eo.utils.types import BBox, DateLike
@@ -34,6 +36,26 @@ logger = logging.getLogger(__name__)
 dataset_id = "jiang_rice_fields"
 ZENODO_RECORD = "13729353"
 ZENODO_API = f"https://zenodo.org/api/records/{ZENODO_RECORD}"
+
+
+def _make_session() -> requests.Session:
+    # Zenodo occasionally returns 5xx/429 during load spikes; retry with
+    # exponential backoff (waits ~1, 2, 4, 8, 16 s → ~31 s worst-case).
+    retry = Retry(
+        total=5,
+        backoff_factor=1.0,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET", "HEAD"}),
+        raise_on_status=False,
+    )
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+_SESSION = _make_session()
 
 # Zenodo file keys are English country names (or, for some, ISO3). This map
 # resolves chap_gis ISO3 country codes to the Zenodo prefix used to find tiles.
@@ -93,7 +115,7 @@ def _inputs_dir() -> Path:
 
 def _zenodo_files_for(prefix: str) -> list[dict]:
     """Return Zenodo file records whose key starts with ``prefix`` (with ``.tif``)."""
-    response = requests.get(ZENODO_API, timeout=30)
+    response = _SESSION.get(ZENODO_API, timeout=30)
     response.raise_for_status()
     record = response.json()
     matches: list[dict] = []
@@ -110,7 +132,7 @@ def _zenodo_files_for(prefix: str) -> list[dict]:
 
 def _download_file(url: str, dest: Path) -> None:
     logger.info(f"Downloading {url} -> {dest}")
-    with requests.get(url, stream=True, timeout=300) as response:
+    with _SESSION.get(url, stream=True, timeout=300) as response:
         response.raise_for_status()
         with dest.open("wb") as fh:
             shutil.copyfileobj(response.raw, fh)
