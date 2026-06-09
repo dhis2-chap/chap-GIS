@@ -112,6 +112,22 @@ def test_get_health_data_csv_renames_chap_columns(xxx_disease_csv, xxx_adm2):
     assert set(ds.location_id.values) == {"XXX-ADM2-SW", "XXX-ADM2-SE", "XXX-ADM2-NW", "XXX-ADM2-NE"}
 
 
+def test_get_health_data_drops_extra_columns(tmp_path, xxx_adm2):
+    """Only the disease signal survives — extra CSV columns (e.g. a prior run's
+    tas/population) must not ride into the final merge and collide with the
+    computed regional aggregates."""
+    gdf = _gdf_with_location_id(xxx_adm2)
+    df = _simulate_monthly_disease_data(gdf, "location_id")
+    df["tas"] = 25.0
+    df["population"] = 1000.0
+    df["pop_exposure"] = 1.0
+    csv = tmp_path / "rich.csv"
+    df.to_csv(csv, index=False)
+
+    ds = get_health_data(str(csv), gdf)
+    assert set(ds.data_vars) == {"disease"}
+
+
 def test_get_health_data_falls_back_to_simulation(tmp_path, xxx_adm2):
     gdf = _gdf_with_location_id(xxx_adm2)
     ds = get_health_data(str(tmp_path / "missing.csv"), gdf)

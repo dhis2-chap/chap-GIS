@@ -85,6 +85,10 @@ def get_health_data(input_csv: str, gdf: gpd.GeoDataFrame) -> xr.Dataset:
         df = _simulate_monthly_disease_data(gdf, "location_id")
 
     df = df.dropna(subset=["location_id", "time", "disease"])
+    # Keep only the disease signal — extra CSV columns (e.g. climate covariates,
+    # or a prior run's tas/population/pop_exposure) would otherwise ride into the
+    # final xr.merge and collide with the freshly computed regional aggregates.
+    df = df[["location_id", "time", "disease"]]
     ds = df.set_index(["location_id", "time"]).to_xarray()
     return normalize(ds, "disease")
 
