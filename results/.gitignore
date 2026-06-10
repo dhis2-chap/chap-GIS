@@ -2,3 +2,7 @@
 *.csv
 *.log
 *.params.json
+*.nc
+*.npz
+*.png
+optimum_rasters_*/

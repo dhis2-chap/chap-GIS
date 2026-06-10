@@ -1,0 +1,14 @@
+{
+  "lambda_m": [1500],
+  "gamma_m": [100],
+  "water_edge_buffer_pixels": [2],
+  "thermal": [
+    { "t_opt": 29, "sigma": 6, "t_min": 19, "t_max": 38 },
+    { "t_opt": 29, "sigma": 8, "t_min": 17, "t_max": 40 },
+    { "t_opt": 31, "sigma": 6, "t_min": 21, "t_max": 40 },
+    { "t_opt": 31, "sigma": 8, "t_min": 19, "t_max": 42 },
+    { "t_opt": 33, "sigma": 6, "t_min": 23, "t_max": 42 },
+    { "t_opt": 33, "sigma": 8, "t_min": 21, "t_max": 44 }
+  ],
+  "base": { "resolution_m": 30.0 }
+}
