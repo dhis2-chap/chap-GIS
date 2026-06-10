@@ -1,0 +1,10 @@
+{
+  "lambda_m": [900, 1200, 1500],
+  "gamma_m": [50, 75, 100],
+  "water_edge_buffer_pixels": [2],
+  "thermal": [
+    { "t_opt": 27, "sigma": 6, "t_min": 18, "t_max": 36 },
+    { "t_opt": 29, "sigma": 6, "t_min": 19, "t_max": 38 }
+  ],
+  "base": { "resolution_m": 30.0 }
+}

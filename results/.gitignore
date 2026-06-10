@@ -1,0 +1,4 @@
+# Sweep outputs are large/regenerable — keep only the grid configs in git.
+*.csv
+*.log
+*.params.json
