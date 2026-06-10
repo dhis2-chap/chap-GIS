@@ -1,0 +1,12 @@
+{
+  "suitability_curve": "logistic threshold",
+  "formula": "S(T) = 1 / (1 + exp(-3*(T-23)))",
+  "T0_C": 23.0,
+  "k": 3.0,
+  "lambda_m": 1500.0,
+  "gamma_m": 100.0,
+  "water_edge_buffer_pixels": 2,
+  "resolution_m": 30.0,
+  "year": 2021,
+  "note": "Champion curve from the suitability-curve search (rho_inc 0.515 vs Gaussian 0.496)."
+}

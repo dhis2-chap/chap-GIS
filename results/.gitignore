@@ -6,3 +6,4 @@
 *.npz
 *.png
 optimum_rasters_*/
+*.tif
