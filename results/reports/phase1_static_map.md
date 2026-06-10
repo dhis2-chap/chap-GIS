@@ -9,17 +9,26 @@ captured when allocating to the top-X%-of-population by predicted risk.
 | lever | burden @50% | gap | P(>baseline) | verdict |
 |---|---|---|---|---|
 | baseline `sigmoid-temp + habitat + built` | 0.788 | — | — | — |
-| **(1) spatial term (GP on centroids)** | **0.792** | +0.014 | **0.92** | **keep — best lever** |
+| (1) spatial term (GP on centroids) | 0.792 | +0.014 | 0.92 | **proximity artifact — see correction** |
 | (4) hydrology (DEM-derived) | 0.777 | −0.005 | 0.37 | drop — needs external surface-water data |
 | (5) urban / pop-density | 0.788 | +0.001 | 0.58 | drop — redundant with built-up |
 | (6) denominators (WorldPop + winsorised) | 0.788 | — | — | adopt — neutral, principled foundation |
-| hydro + urban + spatial (all) | 0.787 | +0.006 | 0.66 | worse than spatial alone (noise dilution) |
 | **oracle** (rank by actual incidence) | 0.880 | — | — | ceiling |
+
+> **Correction (spatial term).** The spatial gain does **not** survive
+> spatially-buffered CV: with a ≥20 km training buffer around the held-out district
+> the spatial add-on contributes **+0.000** (see [step1_spatial.md](step1_spatial.md)).
+> It was proximity-driven interpolation under contiguous-district holdout, not
+> transferable spatial structure — valid OOF (no target leak) but not a real,
+> generalisable improvement. **So none of the four static levers reliably beat the
+> covariate baseline.**
 
 ## Decision: the good static map
 
-**`sigmoid-temp(T₀=19) + log-habitat + log-built-up + spatial GP`**, fit on the
-cleaned (WorldPop-denominated, winsorised) target.
+**`sigmoid-temp(T₀=19) + log-habitat + log-built-up`** (covariate baseline), fit on
+the cleaned (WorldPop-denominated, winsorised) target. The spatial GP is retained
+only as an optional *within-sample smoother* for interpolating among observed
+sectors — it adds nothing for unsampled regions.
 
 Burden captured across allocation budgets (OOF):
 
@@ -35,11 +44,12 @@ urbanization, then smoothed by the spatial field.
 
 ## What we learned
 
-- **Only the spatial term added signal.** Of the four levers, spatial is the lone
-  positive (modest, near-reliable); hydrology and urban added nothing usable from
-  available data, and denominators are immaterial to a *cases*-based metric.
-- **We are close to the data ceiling for a static map.** The good static map sits
-  at **0.79 vs the oracle's 0.88** — and the oracle itself is bounded by the genuine
+- **No static lever reliably beats the covariate baseline** once the spatial term's
+  apparent gain is shown (above) to be a proximity artifact that vanishes under
+  buffered CV. Hydrology and urban add nothing usable from available data, and
+  denominators are immaterial to a *cases*-based metric.
+- **We are at the data ceiling for a static map.** The static map sits
+  at **~0.79 vs the oracle's 0.88** — and the oracle itself is bounded by the genuine
   spatial spread of burden plus outcome noise. Further *static, environmental*
   features are unlikely to close much of the remaining ~0.09 gap; the levers that
   could (seasonal surface water, nightlights/GHSL, travel-time) all require

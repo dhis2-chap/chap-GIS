@@ -32,8 +32,28 @@ Paired district-bootstrap @50%: **gap +0.014, 95% CI [−0.005, +0.035], P(>base
   (fit on all sectors) the spatial smoothing would help more than this OOF number
   suggests.
 
-**Verdict:** *the best static-map lever* — keep it. It captures residual spatial
-structure the environmental covariates don't, and helps exactly where allocation
-budgets are tightest.
+### Correction — the gain does not survive spatially-buffered CV
 
-Artifacts: `results/eval_static_levers.py` (GP on residuals), `static_risk_map.*`.
+The setup is valid OOF (no target leakage: the GP is fit only on training-district
+residuals and merely *predicts* at held-out coordinates). **But leave-one-district-
+out leaves a held-out district's immediate neighbours in training, and a GP exploits
+that proximity.** Re-running with a training buffer around the held-out district:
+
+| training buffer | baseline | +spatial | spatial gain | P(spatial>base) |
+|---|---|---|---|---|
+| 0 km (standard LODO) | 0.788 | 0.794 | +0.006 | 0.94 |
+| 10 km | 0.765 | 0.772 | +0.008 | 0.73 |
+| 20 km | 0.762 | 0.762 | **+0.000** | 0.01 |
+| 30 km | 0.743 | 0.743 | **+0.000** | 0.00 |
+
+The gain vanishes once neighbours are buffered out (≥20 km). So the spatial signal is
+**proximity-driven interpolation, not transferable spatial structure.**
+
+**Verdict (revised):** the spatial term helps only for **interpolating among observed
+sectors**; it adds nothing for **generalising to unsampled regions**, and since
+Rwanda's sectors are all observed it isn't needed for a deployed map. **Do not count
+it as a real static-map improvement.** The honest static map is the covariate
+baseline alone.
+
+Artifacts: `results/eval_static_levers.py` (GP on residuals),
+`spatial_cv_buffer.py` (buffered-CV test), `static_risk_map.*`.

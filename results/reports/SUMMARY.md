@@ -10,17 +10,20 @@ burden@50% ≈ 0.79; oracle (rank by actual incidence) = 0.88.
 | lever | burden@50% | gain vs baseline | P | verdict |
 |---|---|---|---|---|
 | (6) denominators (WorldPop + winsorised) | 0.788 | ~0 | — | adopt (neutral foundation) — [report](step6_denominators.md) |
-| **(1) spatial term (GP on centroids)** | **0.792** | +0.014 | 0.92 | **keep — best lever** — [report](step1_spatial.md) |
+| (1) spatial term (GP on centroids) | 0.792 | +0.014 | 0.92 | **proximity artifact — vanishes under buffered CV** — [report](step1_spatial.md) |
 | (4) hydrology (DEM-derived) | 0.777 | −0.005 | 0.37 | drop; needs external surface-water data — [report](step4_hydrology.md) |
 | (5) urban / pop-density | 0.788 | +0.001 | 0.58 | drop; redundant w/ built-up — [report](step5_urban.md) |
 
-**Good static map** = baseline + spatial term → burden@50% **0.792** (vs 0.788),
-biggest help at tight budgets (30% pop: 0.506 vs 0.488). See
-[phase1_static_map.md](phase1_static_map.md); render `static_risk_map.png`.
+**Good static map** = covariate baseline `sigmoid-temp + habitat + built`
+(burden@50% **0.788**). The spatial term's apparent gain is **proximity-driven** and
+contributes +0.000 under ≥20 km spatially-buffered CV (`spatial_cv_buffer.py`) — it
+is a valid-OOF *within-sample smoother* for interpolating among observed sectors,
+not a transferable improvement. See [phase1_static_map.md](phase1_static_map.md);
+render `static_risk_map.png`.
 
-**Conclusion:** we are near the static-data ceiling (0.79 vs oracle 0.88). Only the
-spatial term added signal; further static gains need *new external data* (seasonal
-surface water; VIIRS/GHSL; travel-time).
+**Conclusion:** we are at the static-data ceiling (0.79 vs oracle 0.88). **No static
+lever reliably beats the covariate baseline**; further static gains need *new
+external data* (seasonal surface water; VIIRS/GHSL; travel-time).
 
 ## Phase 2 — levers 2, 3
 
@@ -38,9 +41,10 @@ surface water; VIIRS/GHSL; travel-time).
 
 ## Overall recommendation
 
-1. **Ship the good static map** (`sigmoid-temp + habitat + built + spatial`) for
-   one-off spatial allocation — it reaches ~0.79 burden@50% vs the old exposure
-   model's ~0.65 (= temperature).
+1. **Ship the good static map** (`sigmoid-temp + habitat + built`) for one-off
+   spatial allocation — it reaches ~0.79 burden@50% vs the old exposure model's
+   ~0.65 (= temperature). (Optional spatial smoothing only where interpolating among
+   observed sectors; it doesn't generalise to unsampled areas.)
 2. **Don't bolt interventions onto it** (confound); keep them as a separate
    effect-modifier analysis.
 3. **The real next product is spatiotemporal** — add lagged rainfall on top of the
