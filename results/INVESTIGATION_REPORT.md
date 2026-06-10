@@ -35,6 +35,46 @@ confound. The productive signal is temperature×vegetation, not breeding-habitat
 
 ---
 
+## 0. Headline metric: burden capture under risk-prioritised allocation
+
+**This is now the primary metric** — it expresses model value in directly actionable
+terms and discriminates models far more sharply than rank correlation.
+
+**Definition.** Rank sectors by predicted risk; allocate interventions to the
+top-ranked sectors until they cover a target share of the population; report the
+share of total malaria **burden (cases)** falling in the allocated part —
+*"targeting X% of people reaches Y% of cases."* Random targeting captures X%;
+ranking by **actual** incidence (the oracle) is the ceiling.
+
+**Burden captured by targeting the top 50% of population** (DHIS2 cases, LODO
+out-of-fold predictions, district-bootstrap 95% CI):
+
+| ranking | burden @50% pop | 95% CI |
+|---|---|---|
+| random | 0.50 | — |
+| temperature (baseline) | 0.66 | [0.54, 0.81] |
+| env 3D surface `S(T,NDVI,amp)` | 0.77 | [0.69, 0.89] |
+| gridded risk map (T + land use) | 0.77 | [0.67, 0.85] |
+| **oracle** (rank by actual incidence) | 0.88 | [0.83, 0.93] |
+
+- **Both environmental risk maps reliably beat temperature** — paired gap **+0.11,
+  P≈0.99** (bootstrap CI excludes 0): ~77% of burden in the top-half allocation vs
+  temperature's ~66%, closing ~65% of the gap to the oracle. Temperature alone
+  closes only ~36%; adding the environmental signal roughly **doubles targeting
+  efficiency**.
+- The vegetation/moisture 3D surface and the temp+land-use gridded map are
+  **statistically indistinguishable** here (+0.004, P=0.57). On a *global*
+  allocation metric the between-district gradient dominates and both encode it;
+  they diverge only on *within-district* ranking (a separate question).
+- Budget sweep (top X% pop → % burden captured): **30%→~50%, 50%→~77%, 70%→~94%**
+  for the risk maps, vs 44 / 65 / 92% for temperature.
+
+Artifacts: `results/evaluate_headline.py`, `headline_burden_capture.{png,csv}`.
+Rank-correlation (Spearman / within-district concordance) is retained below as a
+secondary diagnostic.
+
+---
+
 ## 1. The model under test
 
 Per 30 m pixel, exposure ("risk") =
