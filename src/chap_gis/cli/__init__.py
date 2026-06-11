@@ -16,6 +16,7 @@ from .visualize import visualize
 from .aggregate import aggregate
 from .merge import merge
 from .dynamic import dynamic_periods
+from .champion import champion_map
 
 
 logging.basicConfig(
@@ -31,6 +32,7 @@ app.command(visualize)
 app.command(aggregate)
 app.command(merge)
 app.command(dynamic_periods)
+app.command(champion_map)
 
 
 __all__ = ["app"]
